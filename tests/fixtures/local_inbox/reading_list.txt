@@ -1,0 +1,13 @@
+Personal book list — updated 2024-03
+
+Currently reading:
+- Clean Code by Robert C. Martin
+- The Pragmatic Programmer by Hunt and Thomas
+
+Want to read:
+- A Philosophy of Software Design
+- Site Reliability Engineering (Google)
+
+Notes:
+Recommended "Designing Data-Intensive Applications" to the team.
+This is a plain text file for testing the .txt extraction path.

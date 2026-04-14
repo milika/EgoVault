@@ -1,0 +1,14 @@
+services:
+  egovault:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data      # vault.db, personal config, WAN key
+      - ./inbox:/app/inbox    # drop files here for scanning
+      - ./output:/app/output  # exported Markdown/CSV files
+    # llama-server runs on the host — reachable via host.docker.internal:8080
+    # Set base_url = "http://host.docker.internal:8080" in data/egovault.toml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

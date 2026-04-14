@@ -1,0 +1,65 @@
+From MAILER-DAEMON Sat Apr 11 10:53:17 2026
+From: Alice Smith <alice@example.com>
+To: me@gmail.com
+Subject: Project kickoff meeting
+Date: Mon, 05 Jan 2026 09:00:00 +0000
+Message-ID: <msg001@example.com>
+X-Gmail-Labels: Important,Inbox
+X-Gmail-Thread-Id: 17f1a2b3c4d5e6f7
+X-GM-THRID: 17f1a2b3c4d5e6f7
+
+Hi,
+
+Let us schedule a kickoff meeting for the new project next Monday at 10am.
+
+Best,
+Alice
+
+From MAILER-DAEMON Sat Apr 11 10:53:17 2026
+From: me@gmail.com
+To: alice@example.com
+Subject: Re: Project kickoff meeting
+Date: Mon, 05 Jan 2026 10:30:00 +0000
+Message-ID: <msg002@example.com>
+X-Gmail-Labels: Sent
+X-Gmail-Thread-Id: 17f1a2b3c4d5e6f7
+X-GM-THRID: 17f1a2b3c4d5e6f7
+
+Thanks Alice, Monday works great for me. See you then.
+
+From MAILER-DAEMON Sat Apr 11 10:53:17 2026
+From: newsletter@example.org
+To: me@gmail.com
+Subject: Weekly digest: Python tips
+Date: Fri, 09 Jan 2026 08:00:00 +0000
+Message-ID: <msg003@example.org>
+X-Gmail-Labels: newsletters
+X-Gmail-Thread-Id: 18a1b2c3d4e5f6a7
+X-GM-THRID: 18a1b2c3d4e5f6a7
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="===============2436971422206982497=="
+
+--===============2436971422206982497==
+Content-Type: text/plain; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+
+Python tip of the week: use dataclasses for simple data containers to reduce boilerplate.
+--===============2436971422206982497==
+Content-Type: text/html; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Python tip of the week: use <strong>dataclasses</strong> for simple data containers.</p></body></html>
+--===============2436971422206982497==--
+
+From MAILER-DAEMON Sat Apr 11 10:53:17 2026
+From: noreply@example.com
+To: me@gmail.com
+Subject: Empty notification
+Date: Sat, 10 Jan 2026 12:00:00 +0000
+Message-ID: <msg004@example.com>
+X-Gmail-Labels: notifications
+X-Gmail-Thread-Id: 19b2c3d4e5f6a7b8
+
+

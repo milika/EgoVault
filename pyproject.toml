@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "egovault"
+version = "0.1.0"
+description = "Local-first personal data vault with LLM enrichment and RAG chat"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "prompt_toolkit>=3.0",
+    "pycountry>=24.0",
+    "psutil>=5.9",
+    "sentence-transformers>=2.7",
+    "mcp>=1.0",
+    "streamlit>=1.32",
+    "pdfplumber>=0.11",
+    "python-docx>=1.1",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "ebooklib>=0.18",
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6",
+    "google-auth-oauthlib>=1.2",
+    "google-api-python-client>=2.100",
+]
+
+[project.urls]
+Homepage = "https://github.com/milika/EgoVault"
+"Bug Tracker" = "https://github.com/milika/EgoVault/issues"
+
+[project.scripts]
+egovault = "egovault.cli:main"
+ego = "egovault.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+]
+reranker = [
+    "sentence-transformers>=2.7",
+]
+mcp = [
+    "mcp>=1.0",
+]
+web = [
+    "streamlit>=1.32",
+]
+local = [
+    "pdfplumber>=0.11",
+    "python-docx>=1.1",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "ebooklib>=0.18",
+    "pandas>=2.0",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6",
+    "liteparse>=0.1",
+]
+gmail = [
+    "google-auth-oauthlib>=1.2",
+    "google-api-python-client>=2.100",
+]
+websearch = [
+    "ddgs>=1.0",
+]
+telegram = [
+    "python-telegram-bot>=20.0",
+    "qrcode>=7.0",
+    "telethon>=1.36",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["egovault"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# F821 – undefined names from lazy/conditional imports (PromptSession etc.)
+# F841 – unused local variables in complex agent/session code
+# E741 – ambiguous variable name `l` in legacy loop code
+ignore = ["F821", "F841", "E741"]

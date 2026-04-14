@@ -1,0 +1,1 @@
+"""EgoVault frontend layer."""
