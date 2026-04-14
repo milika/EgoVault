@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# EgoVault — one-liner installer for Windows (PowerShell)
+# EgoVault - one-liner installer for Windows (PowerShell)
 # Usage: irm https://raw.githubusercontent.com/milika/EgoVault/main/scripts/install-win.ps1 | iex
 #
 # What this script does:
@@ -10,42 +10,48 @@
 #   5. Writes a default egovault.toml to ~\.config\egovault\
 #   6. Creates inbox and data directories
 #
-# Safe to re-run — existing config and venv are never clobbered.
+# Safe to re-run - existing config and venv are never clobbered.
 
 [CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
 
-# ── helper output functions ───────────────────────────────────────────────────
+# -- helper output functions ---------------------------------------------------
 function Write-Info  { param($m) Write-Host "[info]  $m" -ForegroundColor Cyan }
 function Write-Ok    { param($m) Write-Host "[ok]    $m" -ForegroundColor Green }
 function Write-Warn  { param($m) Write-Host "[warn]  $m" -ForegroundColor Yellow }
 function Write-Fail  { param($m) Write-Host "[error] $m" -ForegroundColor Red; throw $m }
 
-# ── 1. locate Python 3.11+ with pip ──────────────────────────────────────────
+# -- 1. locate Python 3.11+ with pip ------------------------------------------
 $python = $null
 foreach ($cmd in @('python3.13', 'python3.12', 'python3.11', 'python3', 'python')) {
     $exe = Get-Command $cmd -ErrorAction SilentlyContinue
-    if ($exe) {
+    if (-not $exe) { continue }
+
+    # Get version number; skip store stubs and interpreters that fail
+    $ver = $null
+    try {
+        $ErrorActionPreference = 'Continue'
         $ver = & $exe.Path -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
-        if (($ver -as [int]) -ge 311) {
-            # Skip interpreters without pip (e.g. MSYS2, store stub)
-            $hasPip = $false
-            try {
-                $ErrorActionPreference = 'Continue'
-                $null = & $exe.Path -m pip --version 2>&1
-                $hasPip = ($LASTEXITCODE -eq 0)
-            } catch { $hasPip = $false }
-            finally { $ErrorActionPreference = 'Stop' }
-            if (-not $hasPip) {
-                Write-Warn "Skipping $($exe.Path) — no pip available"
-                continue
-            }
-            $python = $exe.Path
-            break
-        }
+    } catch { $ver = $null }
+    finally { $ErrorActionPreference = 'Stop' }
+    if (($ver -as [int]) -lt 311) { continue }
+
+    # Skip interpreters without pip (e.g. MSYS2, store stub)
+    $hasPip = $false
+    try {
+        $ErrorActionPreference = 'Continue'
+        $null = & $exe.Path -m pip --version 2>&1
+        $hasPip = ($LASTEXITCODE -eq 0)
+    } catch { $hasPip = $false }
+    finally { $ErrorActionPreference = 'Stop' }
+    if (-not $hasPip) {
+        Write-Warn "Skipping $($exe.Path) - no pip available"
+        continue
     }
+    $python = $exe.Path
+    break
 }
 
 if (-not $python) {
@@ -55,13 +61,13 @@ Python 3.11 or later with pip is required but was not found.
     winget install Python.Python.3.12
   or:  https://www.python.org/downloads/windows/
   Make sure to check 'Add Python to PATH' during installation.
-  Note: MSYS2/Cygwin Python is not supported — install the official python.org build.
+  Note: MSYS2/Cygwin Python is not supported - install the official python.org build.
 "@
 }
 
 Write-Ok "Python: $(& $python --version)"
 
-# ── 2. create / reuse venv ────────────────────────────────────────────────────
+# -- 2. create / reuse venv ----------------------------------------------------
 $venvDir = Join-Path $HOME '.egovault\venv'
 if (Test-Path (Join-Path $venvDir 'Scripts\python.exe')) {
     Write-Info "Using existing venv at $venvDir"
@@ -75,18 +81,24 @@ $venvPython = Join-Path $venvDir 'Scripts\python.exe'
 $venvPip    = Join-Path $venvDir 'Scripts\pip.exe'
 $venvScripts = Join-Path $venvDir 'Scripts'
 
-# ── 3. install / upgrade egovault into the venv ───────────────────────────────
-$installed = & $venvPip show egovault 2>$null
+# -- 3. install / upgrade egovault into the venv -------------------------------
+$installed = $false
+try {
+    $ErrorActionPreference = 'Continue'
+    $null = & $venvPip show egovault 2>&1
+    $installed = ($LASTEXITCODE -eq 0)
+} catch { $installed = $false }
+finally { $ErrorActionPreference = 'Stop' }
 if ($installed) {
-    Write-Info "egovault already installed — upgrading..."
+    Write-Info "egovault already installed - upgrading..."
     & $venvPip install --upgrade --quiet egovault
 } else {
     Write-Info "Installing egovault..."
     & $venvPip install --quiet egovault
 }
-if ($LASTEXITCODE -ne 0) { Write-Fail "pip install egovault failed." }
+if ($LASTEXITCODE -ne 0) { Write-Fail "pip install egovault failed. The package may not be published to PyPI yet." }
 
-# ── 4. add venv Scripts to user PATH (permanent) ─────────────────────────────
+# -- 4. add venv Scripts to user PATH (permanent) -----------------------------
 $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
 if (-not $userPath) { $userPath = '' }
 if ($userPath -notlike "*$venvScripts*") {
@@ -99,7 +111,7 @@ $env:PATH = "$venvScripts;$env:PATH"
 $evVer = & egovault --version 2>$null
 Write-Ok "egovault $evVer"
 
-# ── 5. paths ──────────────────────────────────────────────────────────────────
+# -- 5. paths ------------------------------------------------------------------
 $configDir  = Join-Path $HOME '.config\egovault'
 $configFile = Join-Path $configDir 'egovault.toml'
 $dataDir    = Join-Path $HOME '.local\share\egovault'
@@ -114,9 +126,9 @@ New-Item -ItemType Directory -Force -Path "$dataDir\models"       | Out-Null
 New-Item -ItemType Directory -Force -Path "$dataDir\output"       | Out-Null
 New-Item -ItemType Directory -Force -Path $inboxDir               | Out-Null
 
-# ── 6. write default config (only if missing) ─────────────────────────────────
+# -- 6. write default config (only if missing) ---------------------------------
 if (Test-Path $configFile) {
-    Write-Warn "Config already exists at $configFile — skipping."
+    Write-Warn "Config already exists at $configFile - skipping."
 } else {
     @"
 [general]
@@ -148,7 +160,7 @@ max_results = 5
     Write-Ok "Config written to $configFile"
 }
 
-# ── done ──────────────────────────────────────────────────────────────────────
+# -- done ----------------------------------------------------------------------
 Write-Host ""
 Write-Host "EgoVault is ready!" -ForegroundColor White -BackgroundColor DarkGreen
 Write-Host "  vault DB  :  $dataDir\vault.db"
