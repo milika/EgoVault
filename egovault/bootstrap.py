@@ -291,6 +291,7 @@ def _auto_download_llama_server(
                             fname in ("llama-server", "llama-server.exe")
                             or fname.endswith(".dylib")
                             or fname.endswith(".so")
+                            or ".so." in fname  # versioned: libfoo.so.0
                         )
                         if is_binary:
                             src = tf.extractfile(member)
@@ -551,11 +552,16 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
         mode="w", suffix="-llama-stderr.txt", delete=False
     )
     global _server_proc
+    _launch_env = {**os.environ}
+    if sys.platform not in ("win32", "darwin"):
+        # Add _BIN_DIR to LD_LIBRARY_PATH so bundled .so files (e.g. libmtmd.so.0) are found
+        existing = _launch_env.get("LD_LIBRARY_PATH", "")
+        _launch_env["LD_LIBRARY_PATH"] = f"{_BIN_DIR}:{existing}" if existing else str(_BIN_DIR)
     _server_proc = subprocess.Popen(  # noqa: S603
         cmd,
         stdout=subprocess.DEVNULL,
         stderr=_stderr_file,
-        env={**os.environ},
+        env=_launch_env,
     )
     _stderr_file.close()
     atexit.register(_stop_server)
@@ -606,7 +612,7 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
                             cmd,
                             stdout=subprocess.DEVNULL,
                             stderr=_stderr_file2,
-                            env={**os.environ},
+                            env=_launch_env,
                         )
                         _stderr_file2.close()
                         _stderr_file = _stderr_file2
