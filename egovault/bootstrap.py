@@ -206,7 +206,9 @@ def _auto_download_llama_server(console: Console) -> str | None:
             return -1  # skip cudart, source tarballs, etc.
         if sys.platform == "win32" and ("win" not in n or "x64" not in n):
             return -1
-        if sys.platform != "win32" and "linux" not in n:
+        if sys.platform == "darwin" and "macos" not in n and "osx" not in n and "apple" not in n:
+            return -1
+        if sys.platform == "linux" and "linux" not in n:
             return -1
         score = 0
         if "cuda" in n:
@@ -245,12 +247,20 @@ def _auto_download_llama_server(console: Console) -> str | None:
         return dest_zip
 
     def _extract_to_bin(zip_path: Path) -> None:
-        """Extract all .exe and .dll files from a zip to _BIN_DIR."""
+        """Extract llama-server binary (and DLLs on Windows) from a zip to _BIN_DIR."""
         try:
             with zipfile.ZipFile(zip_path) as zf:
                 for member in zf.namelist():
-                    if member.lower().endswith((".exe", ".dll")):
-                        (_BIN_DIR / Path(member).name).write_bytes(zf.read(member))
+                    fname = Path(member).name.lower()
+                    is_binary = (
+                        fname in ("llama-server", "llama-server.exe")
+                        or fname.endswith(".dll")
+                    )
+                    if is_binary:
+                        dest = _BIN_DIR / Path(member).name
+                        dest.write_bytes(zf.read(member))
+                        if sys.platform != "win32":
+                            dest.chmod(0o755)
         except Exception as exc:
             logger.error("Extraction error for %s: %s", zip_path.name, exc)
         finally:
@@ -445,11 +455,20 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
         console.print("[dim]Binary download failed \u2014 trying llama-cpp-python\u2026[/dim]")
         if not _ensure_llama_cpp_python(console):
             py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+            if sys.platform == "darwin":
+                hint = (
+                    "[dim]On macOS, install llama-server via Homebrew:\n"
+                    "  brew install llama.cpp\n"
+                    "Then re-run: ego chat[/dim]"
+                )
+            else:
+                hint = (
+                    f"[dim]Python {py_ver} may not yet have llama-cpp-python wheels.\n"
+                    "Get llama-server directly: "
+                    "https://github.com/ggml-org/llama.cpp/releases[/dim]"
+                )
             console.print(
-                "[red]EgoVault:[/red] Could not start an LLM server.\n"
-                f"[dim]Python {py_ver} may not yet have llama-cpp-python wheels.\n"
-                "Get llama-server directly: "
-                "https://github.com/ggml-org/llama.cpp/releases[/dim]"
+                "[red]EgoVault:[/red] Could not start an LLM server.\n" + hint
             )
             return False
         cmd = [
