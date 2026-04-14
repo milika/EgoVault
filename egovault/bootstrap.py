@@ -279,7 +279,7 @@ def _auto_download_llama_server(
         return dest_arc
 
     def _extract_to_bin(arc_path: Path) -> None:
-        """Extract llama-server binary (and DLLs on Windows) to _BIN_DIR."""
+        """Extract llama-server binary and shared libs (.dylib/.so/.dll) to _BIN_DIR."""
         try:
             name_lower = arc_path.name.lower()
             if name_lower.endswith(".tar.gz"):
@@ -287,7 +287,12 @@ def _auto_download_llama_server(
                 with tarfile.open(arc_path) as tf:
                     for member in tf.getmembers():
                         fname = Path(member.name).name.lower()
-                        if fname in ("llama-server", "llama-server.exe"):
+                        is_binary = (
+                            fname in ("llama-server", "llama-server.exe")
+                            or fname.endswith(".dylib")
+                            or fname.endswith(".so")
+                        )
+                        if is_binary:
                             src = tf.extractfile(member)
                             if src:
                                 dest_file = _BIN_DIR / Path(member.name).name
