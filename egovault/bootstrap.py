@@ -458,6 +458,31 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
             )
             return False
 
+    # ── mmproj (vision projector for multimodal/image support) ──────────────
+    mmproj_path: Path | None = None
+    if lcpp.mmproj_path:
+        _mmproj_resolved = Path(lcpp.mmproj_path).expanduser().resolve()
+        if _mmproj_resolved.exists():
+            mmproj_path = _mmproj_resolved
+        else:
+            _mmproj_hf_file = lcpp.mmproj_hf_file or _mmproj_resolved.name
+            if lcpp.model_hf_repo:
+                _mmproj_dl = _mmproj_resolved.parent / _mmproj_hf_file
+                if not _mmproj_dl.exists():
+                    _download_model(_mmproj_dl, lcpp.model_hf_repo, console)
+                if _mmproj_dl.exists():
+                    if _mmproj_dl != _mmproj_resolved:
+                        _mmproj_dl.rename(_mmproj_resolved)
+                    mmproj_path = _mmproj_resolved
+            else:
+                console.print(
+                    f"[yellow]Warning:[/yellow] mmproj_path set but not found: "
+                    f"{_mmproj_resolved}\n"
+                    "[dim]Set [bold]llama_cpp.model_hf_repo[/bold] + "
+                    "[bold]llama_cpp.mmproj_hf_file[/bold] for auto-download, "
+                    "or place the file manually.[/dim]"
+                )
+
     # Compute ctx_size using 80 % of currently-free VRAM (model loads unrestricted).
     ctx = lcpp.ctx_size
     if ctx == 0:
@@ -505,6 +530,8 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
             cmd += ["--flash-attn", "on"]  # new llama.cpp takes on|off|auto, not bare flag
         if lcpp.embed:
             cmd += ["--embedding", "--pooling", "mean"]
+        if mmproj_path:
+            cmd += ["--mmproj", str(mmproj_path)]
         backend = "llama-server"
     else:
         # Binary download failed — try llama-cpp-python as last resort.
@@ -539,6 +566,8 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
             cmd += ["--flash_attn", "true"]
         if lcpp.embed:
             cmd += ["--embedding", "true"]
+        if mmproj_path:
+            cmd += ["--mmproj", str(mmproj_path)]
         backend = "llama-cpp-python"
 
     console.print(

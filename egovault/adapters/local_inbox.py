@@ -65,6 +65,12 @@ _FILE_TYPE_INFO: dict[str, tuple[str, str]] = {
     ".cfg":   ("code", "text/plain"),
     ".conf":  ("code", "text/plain"),
     ".sql":   ("code", "text/x-sql"),
+    # Images — described via LLM vision API at ingest time
+    ".jpg":  ("image", "image/jpeg"),
+    ".jpeg": ("image", "image/jpeg"),
+    ".png":  ("image", "image/png"),
+    ".bmp":  ("image", "image/bmp"),
+    ".heic": ("image", "image/heic"),
 }
 
 # Derived views — kept as module-level constants for O(1) membership tests.
@@ -87,6 +93,23 @@ _PLAIN_TEXT_SUFFIXES: frozenset[str] = frozenset(
     ext for ext, (rtype, _) in _FILE_TYPE_INFO.items() if rtype == "code"
 ) | frozenset({".md", ".txt", ".ini", ".cfg", ".conf"})
 
+# Image suffixes handled via LLM vision description.
+_IMAGE_SUFFIXES: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".bmp", ".heic"})
+
+_IMAGE_MIME: dict[str, str] = {
+    ".jpg":  "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png":  "image/png",
+    ".bmp":  "image/bmp",
+    ".heic": "image/jpeg",   # HEIC is re-encoded to JPEG bytes before sending
+}
+
+_IMAGE_VISION_PROMPT = (
+    "Describe this image in detail. Include every visible object, person, "
+    "text, scene, activity, color, and any other notable feature. "
+    "Your description will be used as searchable text — be specific and thorough."
+)
+
 
 def _is_supported(path: Path) -> bool:
     """Return True if *path* should be ingested by the adapter."""
@@ -95,6 +118,110 @@ def _is_supported(path: Path) -> bool:
         path.suffix.lower() in SUPPORTED_SUFFIXES
         or name_lower in SUPPORTED_DOTFILES
     )
+
+
+# Per-process cache: base_url → True (vision ok) | False (no vision)
+_vision_supported_cache: dict[str, bool] = {}
+
+
+def _is_vision_supported(base_url: str, timeout: int = 5) -> bool:
+    """Return True if the running llama-server has a multimodal projector loaded.
+
+    Calls ``GET <base_url>/props`` and checks the ``multimodal`` field.
+    Result is cached for the lifetime of the process so scanning a folder
+    only pays the HTTP round-trip once.
+    """
+    import json as _json
+    import urllib.request as _req
+
+    if base_url in _vision_supported_cache:
+        return _vision_supported_cache[base_url]
+
+    url = base_url.rstrip("/") + "/props"
+    try:
+        with _req.urlopen(url, timeout=timeout) as resp:  # noqa: S310
+            data = _json.loads(resp.read().decode("utf-8"))
+        supported = bool(data.get("multimodal", False))
+    except Exception:
+        # /props endpoint missing (older llama-server) or server unreachable —
+        # assume no vision so we don't block ingest.
+        supported = False
+
+    _vision_supported_cache[base_url] = supported
+    if not supported:
+        logger.info(
+            "llama-server at %s does not report multimodal support — "
+            "image files will be ingested without a vision description. "
+            "To enable: add --mmproj <projector.gguf> to the server launch command "
+            "and set llama_cpp.mmproj_path in egovault.toml.",
+            base_url,
+        )
+    return supported
+
+
+def _describe_image(path: Path) -> str:
+    """Return a text description of *path* by calling the LLM vision API.
+
+    Sends the image as a base64 data-URI in the OpenAI multimodal message
+    format (``image_url`` content part).  HEIC images are converted to JPEG
+    first using ``pillow-heif`` (install with ``pip install pillow-heif``).
+
+    Returns an empty string on any failure so ingest can continue.
+    """
+    import base64 as _b64
+    from egovault.config import get_settings
+    from egovault.utils.llm import call_llm_chat
+
+    settings = get_settings()
+    if not _is_vision_supported(settings.llm.base_url):
+        return ""
+
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".heic":
+            try:
+                from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+                register_heif_opener()
+            except ImportError:
+                logger.warning(
+                    "pillow-heif not installed — cannot describe HEIC image %s. "
+                    "Install with: pip install pillow-heif",
+                    path.name,
+                )
+                return "[HEIC image — install pillow-heif to enable vision description]"
+            import io
+            from PIL import Image  # type: ignore[import-untyped]
+            with Image.open(path) as img:
+                buf = io.BytesIO()
+                img.convert("RGB").save(buf, format="JPEG")
+                image_bytes = buf.getvalue()
+            mime = "image/jpeg"
+        else:
+            image_bytes = path.read_bytes()
+            mime = _IMAGE_MIME.get(suffix, "image/jpeg")
+
+        llm = settings.llm
+        b64 = _b64.b64encode(image_bytes).decode("ascii")
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _IMAGE_VISION_PROMPT},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                ],
+            }
+        ]
+        return call_llm_chat(
+            base_url=llm.base_url,
+            model=llm.model,
+            messages=messages,
+            timeout=llm.timeout_seconds,
+            provider=llm.provider,
+            api_key=llm.api_key,
+        )
+    except Exception as exc:
+        logger.warning("Vision description failed for %s: %s", path.name, exc)
+        return ""
 
 
 def _extract_pdf_liteparse(path: Path) -> str:
@@ -196,6 +323,9 @@ def _extract_text(path: Path) -> str:
                 if hasattr(shape, "text") and shape.text.strip():
                     texts.append(shape.text)
         return "\n".join(texts)
+
+    if suffix in _IMAGE_SUFFIXES:
+        return _describe_image(path)
 
     return ""
 
