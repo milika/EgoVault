@@ -125,12 +125,6 @@ egovault mcp           # MCP server for AnythingLLM / Claude Desktop
 - [ ] Multi-level access control (owner -> guest, passphrase auth)
 - [ ] `egovault doctor` - health-check command
 
-### Distribution
-- [x] GitHub Actions CI - tests on Ubuntu, Windows, macOS (Python 3.11 & 3.12)
-- [x] Docker - `Dockerfile` + `docker-compose.yml` included
-- [x] Shell install scripts - `install-win.ps1` (PowerShell) - `install.sh` (Linux/macOS/WSL)
-- [x] PyPI release - `pipx install egovault`
-
 Your data, your rules. Contributions and ideas are welcome - see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
