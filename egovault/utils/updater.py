@@ -148,7 +148,45 @@ def check_for_update() -> UpdateInfo | None:
     return _check_pypi(mode)
 
 
-def apply_update(info: UpdateInfo, console: Console) -> bool:
+def _windows_deferred_upgrade(console: Console) -> None:
+    """Schedule a pip upgrade in a new console window, then exit this process.
+
+    On Windows the running egovault.exe is file-locked; pip cannot overwrite it
+    in-process.  We write a small .cmd helper, open it in a new console, and
+    exit immediately so the lock is released before pip runs.
+    Never returns (calls sys.exit).
+    """
+    import tempfile as _tmp
+    bat = Path(_tmp.gettempdir()) / "egovault_upgrade.cmd"
+    bat.write_text(
+        "@echo off\n"
+        "echo Upgrading EgoVault - please wait...\n"
+        "timeout /t 5 /nobreak >nul\n"
+        f'"{sys.executable}" -m pip install --upgrade --force-reinstall egovault\n'
+        "if %errorlevel% neq 0 (\n"
+        "  echo.\n"
+        "  echo Upgrade failed.\n"
+        "  pause\n"
+        ") else (\n"
+        "  echo Done! Re-run: ego chat\n"
+        "  timeout /t 3 /nobreak >nul\n"
+        ")\n",
+        encoding="ascii",
+    )
+    _CREATE_NEW_CONSOLE = 0x00000010
+    subprocess.Popen(  # noqa: S603
+        ["cmd.exe", "/c", str(bat)],
+        creationflags=_CREATE_NEW_CONSOLE,
+        close_fds=True,
+    )
+    console.print(
+        "\n[dim]  Upgrade running in a new window.\n"
+        "  Re-run [bold]ego chat[/bold] once it completes.[/dim]\n"
+    )
+    sys.exit(0)
+
+
+
     """Apply the update described in *info*.  Returns True on success."""
     try:
         if info.mode == "git":
@@ -177,9 +215,14 @@ def apply_update(info: UpdateInfo, console: Console) -> bool:
             return True
 
         # plain pip
+        if sys.platform == "win32":
+            # Can't overwrite the running .exe in-place; use deferred helper.
+            _windows_deferred_upgrade(console)  # exits the process, never returns
+
         console.print("[dim]  Running pip install --upgrade egovault…[/dim]")
         r = _run(
-            sys.executable, "-m", "pip", "install", "--upgrade", "egovault", "-q",
+            sys.executable, "-m", "pip", "install",
+            "--upgrade", "--force-reinstall", "egovault", "-q",
             timeout=120,
         )
         if r.returncode != 0:
