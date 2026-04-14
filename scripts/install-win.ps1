@@ -7,8 +7,8 @@
 #   2. Creates an egovault folder in the current directory
 #   3. Creates a .venv inside that folder
 #   4. Installs egovault into the venv
-#   5. Adds the venv Scripts dir to user PATH permanently
-#   6. Writes egovault.toml, inbox/, data/ all inside the folder
+#   4. Writes egovault.toml, inbox/, data/ all inside the folder
+#   5. Creates ego.cmd launcher in the folder
 #
 # Run this from wherever you want EgoVault to live, e.g.:
 #   cd C:\Users\you\Projects
@@ -106,19 +106,11 @@ if ($installed) {
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "pip install egovault failed." }
 
-# -- 5. add venv Scripts to user PATH (permanent) -----------------------------
-$userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-if (-not $userPath) { $userPath = '' }
-if ($userPath -notlike "*$venvScripts*") {
-    [System.Environment]::SetEnvironmentVariable('PATH', "$venvScripts;$userPath", 'User')
-    Write-Info "Added $venvScripts to user PATH."
-}
-$env:PATH = "$venvScripts;$env:PATH"
-
-$evVer = & egovault --version 2>$null
+$evExe = Join-Path $venvScripts 'egovault.exe'
+$evVer = & $evExe --version 2>$null
 Write-Ok "egovault $evVer"
 
-# -- 6. create data dirs and config inside the install folder -----------------
+# -- 5. create data dirs and config inside the install folder -----------------
 $dataDir   = Join-Path $installDir 'data'
 $inboxDir  = Join-Path $installDir 'inbox'
 $configFile = Join-Path $installDir 'egovault.toml'
@@ -131,7 +123,7 @@ New-Item -ItemType Directory -Force -Path "$dataDir\models"   | Out-Null
 New-Item -ItemType Directory -Force -Path "$dataDir\output"   | Out-Null
 New-Item -ItemType Directory -Force -Path $inboxDir           | Out-Null
 
-# -- 7. write default config (only if missing) --------------------------------
+# -- 6. write default config (only if missing) --------------------------------
 if (Test-Path $configFile) {
     Write-Warn "Config already exists at $configFile - skipping."
 } else {
@@ -165,18 +157,22 @@ max_results = 5
     Write-Ok "Config written to $configFile"
 }
 
+# -- 7. create ego.cmd launcher -----------------------------------------------
+$launcherPath = Join-Path $installDir 'ego.cmd'
+$launcherContent = "@echo off`r`n`"$evExe`" %*`r`n"
+[System.IO.File]::WriteAllText($launcherPath, $launcherContent, [System.Text.Encoding]::ASCII)
+Write-Ok "Launcher created: $launcherPath"
+
 # -- done ----------------------------------------------------------------------
 Write-Host ""
 Write-Host "EgoVault is ready!" -ForegroundColor White -BackgroundColor DarkGreen
-Write-Host "  folder    :  $installDir"
-Write-Host "  inbox     :  $inboxDir"
-Write-Host "  config    :  $configFile"
+Write-Host "  folder :  $installDir"
+Write-Host "  inbox  :  $inboxDir"
+Write-Host "  config :  $configFile"
 Write-Host ""
-Write-Host "Next steps:"
-Write-Host "  1. cd $installDir"
-Write-Host "  2. egovault chat       # terminal REPL"
-Write-Host "  3. egovault web        # Streamlit browser UI"
+Write-Host "To start:"
+Write-Host "  cd $installDir"
+Write-Host "  ego chat       # terminal REPL"
+Write-Host "  ego web        # Streamlit browser UI"
 Write-Host ""
 Write-Host "Full docs: https://github.com/milika/EgoVault/blob/main/docs/installation.md"
-Write-Host ""
-Write-Warn "Restart PowerShell (or open a new terminal) so 'egovault' is available everywhere."
