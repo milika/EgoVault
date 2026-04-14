@@ -224,8 +224,8 @@ def _auto_download_llama_server(
         elif sys.platform == "darwin":
             if "macos" not in n and "osx" not in n and "apple" not in n:
                 return -1
-        else:  # linux
-            if "linux" not in n:
+        else:  # linux — llama.cpp uses "ubuntu" not "linux" in asset names
+            if "linux" not in n and "ubuntu" not in n:
                 return -1
         score = 0
         if sys.platform == "darwin":
@@ -233,15 +233,19 @@ def _auto_download_llama_server(
                 score += 5  # prefer native arm64 on Apple Silicon
             elif not _is_arm and "x64" in n:
                 score += 5
+        else:  # linux: prefer matching arch
+            if _is_arm and "arm64" in n:
+                score += 5
+            elif not _is_arm and ("x64" in n or "x86_64" in n):
+                score += 5
         if "cuda" in n:
             score += 10
         if "avx2" in n:
             score += 2
         elif "avx" in n:
             score += 1
-        # Penalise specialised CPU-variant builds — they require specific
-        # microarchitecture features and can SIGABRT on incompatible chips.
-        if "kleidiai" in n or "no-metal" in n:
+        # Penalise specialised builds that need specific hardware/drivers
+        if "kleidiai" in n or "no-metal" in n or "openvino" in n or "rocm" in n or "vulkan" in n:
             score -= 3
         return score
 
