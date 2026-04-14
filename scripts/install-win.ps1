@@ -175,3 +175,6 @@ Write-Host "  ego chat       # terminal REPL"
 Write-Host "  ego web        # Streamlit browser UI"
 Write-Host ""
 Write-Host "Full docs: https://github.com/milika/EgoVault/blob/main/docs/installation.md"
+
+# Launch ego chat immediately
+& $evExe chat
