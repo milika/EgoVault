@@ -99,10 +99,10 @@ try {
 finally { $ErrorActionPreference = 'Stop' }
 if ($installed) {
     Write-Info "egovault already installed - upgrading..."
-    & $venvPip install --upgrade --quiet egovault
+    & $venvPip install --upgrade --progress-bar on egovault
 } else {
     Write-Info "Installing egovault..."
-    & $venvPip install --quiet egovault
+    & $venvPip install --progress-bar on egovault
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "pip install egovault failed." }
 
