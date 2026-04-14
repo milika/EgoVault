@@ -105,10 +105,10 @@ fi
 # -- 4. install / upgrade egovault into the venv ------------------------------
 if "$VENV_PIP" show egovault >/dev/null 2>&1; then
     info "egovault already installed - upgrading..."
-    "$VENV_PIP" install --upgrade --progress-bar on egovault
+    "$VENV_PIP" install --upgrade --no-cache-dir --progress-bar on egovault
 else
     info "Installing egovault..."
-    "$VENV_PIP" install --progress-bar on egovault
+    "$VENV_PIP" install --no-cache-dir --progress-bar on egovault
 fi
 ok "egovault $($EV_EXE --version 2>/dev/null || true)"
 
