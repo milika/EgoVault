@@ -89,14 +89,6 @@ class LlamaCppSettings:
     # Set to "" to disable auto-download.
     # The file downloaded is Path(model_path).name from the repo's main branch.
     model_hf_repo: str = "unsloth/gemma-4-E2B-it-GGUF"
-    # Path to the multimodal projector GGUF (--mmproj).  Required for vision /
-    # image-understanding features (e.g. image ingestion via `egovault scan`).
-    # Set to "" if your model does not support vision.
-    # Example: "./models/gemma-4-E2B-it-UD-mmproj-f16.gguf"
-    mmproj_path: str = ""
-    # HuggingFace filename to auto-download for the mmproj when mmproj_path is
-    # missing.  Downloaded from the same model_hf_repo.  Set to "" to disable.
-    mmproj_hf_file: str = ""
 
 
 @dataclass

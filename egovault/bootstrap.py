@@ -358,11 +358,14 @@ def _auto_download_llama_server(
     return str(dest)
 
 
-def _download_model(model_path: Path, hf_repo: str, console: Console) -> bool:
+def _download_model(model_path: Path, hf_repo: str, console: Console, *, silent_on_error: bool = False) -> bool:
     """Download *model_path.name* from ``hf_repo`` (HuggingFace) to *model_path*.
 
     Uses a ``.part`` temp file so an interrupted download never leaves a
     corrupt GGUF in place.  Returns True on success.
+
+    When *silent_on_error* is True, failures are logged at DEBUG level only
+    (no console output) — useful for probing optional files.
     """
     from rich.progress import (
         BarColumn,
@@ -378,10 +381,11 @@ def _download_model(model_path: Path, hf_repo: str, console: Console) -> bool:
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
 
-    console.print(
-        f"[bold]Auto-downloading[/bold] [cyan]{filename}[/cyan] "
-        f"from [link={url}]{hf_repo}[/link] …"
-    )
+    if not silent_on_error:
+        console.print(
+            f"[bold]Auto-downloading[/bold] [cyan]{filename}[/cyan] "
+            f"from [link={url}]{hf_repo}[/link] …"
+        )
 
     try:
         with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
@@ -413,12 +417,15 @@ def _download_model(model_path: Path, hf_repo: str, console: Console) -> bool:
     except Exception as exc:
         logger.error("Model download failed: %s", exc)
         tmp_path.unlink(missing_ok=True)
-        console.print(
-            f"[red]EgoVault:[/red] Download failed: {exc}\n"
-            f"[dim]URL tried: {url}[/dim]\n"
-            "[dim]Place the GGUF manually or update [bold]llama_cpp.model_hf_repo[/bold] "
-            "in egovault.toml.[/dim]"
-        )
+        if not silent_on_error:
+            console.print(
+                f"[red]EgoVault:[/red] Download failed: {exc}\n"
+                f"[dim]URL tried: {url}[/dim]\n"
+                "[dim]Place the GGUF manually or update [bold]llama_cpp.model_hf_repo[/bold] "
+                "in egovault.toml.[/dim]"
+            )
+        else:
+            logger.debug("mmproj probe download failed for %s: %s", filename, exc)
         return False
 
 
@@ -458,30 +465,41 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
             )
             return False
 
-    # ── mmproj (vision projector for multimodal/image support) ──────────────
+    # ── mmproj (vision projector) — auto-detect or auto-download ────────────
+    # Step 1: look for any *mmproj*.gguf file alongside the main model GGUF.
+    # Step 2: if none found and we have a HuggingFace repo, try downloading
+    #         well-known projector filenames from that same repo.
+    # No config needed — vision just works if a projector is present.
     mmproj_path: Path | None = None
-    if lcpp.mmproj_path:
-        _mmproj_resolved = Path(lcpp.mmproj_path).expanduser().resolve()
-        if _mmproj_resolved.exists():
-            mmproj_path = _mmproj_resolved
-        else:
-            _mmproj_hf_file = lcpp.mmproj_hf_file or _mmproj_resolved.name
-            if lcpp.model_hf_repo:
-                _mmproj_dl = _mmproj_resolved.parent / _mmproj_hf_file
-                if not _mmproj_dl.exists():
-                    _download_model(_mmproj_dl, lcpp.model_hf_repo, console)
-                if _mmproj_dl.exists():
-                    if _mmproj_dl != _mmproj_resolved:
-                        _mmproj_dl.rename(_mmproj_resolved)
-                    mmproj_path = _mmproj_resolved
-            else:
+    _mmproj_candidates = sorted(model_path.parent.glob("*mmproj*.gguf"))
+    if _mmproj_candidates:
+        mmproj_path = _mmproj_candidates[0]
+        console.print(
+            f"[dim]llama-server: vision projector auto-detected → "
+            f"[bold]{mmproj_path.name}[/bold][/dim]"
+        )
+    elif lcpp.model_hf_repo:
+        # Try downloading a projector from the same HF repo.
+        # Common naming conventions across llama.cpp-compatible repos:
+        _MMPROJ_FILENAMES = ["mmproj-BF16.gguf", "mmproj-F16.gguf", "mmproj-F32.gguf"]
+        for _fname in _MMPROJ_FILENAMES:
+            _dl_target = model_path.parent / _fname
+            console.print(
+                f"[dim]llama-server: probing for vision projector "
+                f"[bold]{_fname}[/bold] in {lcpp.model_hf_repo} …[/dim]"
+            )
+            if _download_model(_dl_target, lcpp.model_hf_repo, console, silent_on_error=True):
+                mmproj_path = _dl_target
                 console.print(
-                    f"[yellow]Warning:[/yellow] mmproj_path set but not found: "
-                    f"{_mmproj_resolved}\n"
-                    "[dim]Set [bold]llama_cpp.model_hf_repo[/bold] + "
-                    "[bold]llama_cpp.mmproj_hf_file[/bold] for auto-download, "
-                    "or place the file manually.[/dim]"
+                    f"[dim]llama-server: vision projector downloaded → "
+                    f"[bold]{_fname}[/bold][/dim]"
                 )
+                break
+        if mmproj_path is None:
+            console.print(
+                "[dim]No vision projector found in this model's HF repo — "
+                "image description will be skipped.[/dim]"
+            )
 
     # Compute ctx_size using 80 % of currently-free VRAM (model loads unrestricted).
     ctx = lcpp.ctx_size

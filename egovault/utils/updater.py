@@ -91,6 +91,8 @@ def _check_git() -> UpdateInfo | None:
             "git", "rev-list", "--count", f"{local}..origin/main", cwd=_REPO_ROOT
         )
         count = count_r.stdout.strip() or "?"
+        if count == "0":
+            return None
         noun = "commit" if count == "1" else "commits"
         return UpdateInfo("git", f"{count} new {noun} on origin/main")
     except Exception as exc:
