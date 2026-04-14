@@ -231,6 +231,10 @@ def _auto_download_llama_server(console: Console) -> str | None:
             score += 2
         elif "avx" in n:
             score += 1
+        # Penalise specialised CPU-variant builds — they require specific
+        # microarchitecture features and can SIGABRT on incompatible chips.
+        if "kleidiai" in n or "no-metal" in n:
+            score -= 3
         return score
 
     best = max(assets, key=lambda a: _score(a["name"]), default=None)
@@ -516,13 +520,18 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
         f"vram-budget={lcpp.vram_budget_pct:.0%}[/dim]"
     )
 
+    import tempfile as _tempfile
+    _stderr_file = _tempfile.NamedTemporaryFile(
+        mode="w", suffix="-llama-stderr.txt", delete=False
+    )
     global _server_proc
     _server_proc = subprocess.Popen(  # noqa: S603
         cmd,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=_stderr_file,
         env={**os.environ},
     )
+    _stderr_file.close()
     atexit.register(_stop_server)
 
     # Wait up to 60 s for the server to become reachable.
@@ -530,10 +539,17 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
     last_dot = 0
     while time.monotonic() < deadline:
         if _server_proc.poll() is not None:
+            # Show the last few lines of stderr to aid debugging.
+            try:
+                with open(_stderr_file.name, encoding="utf-8", errors="replace") as _fh:
+                    _tail = _fh.read()[-2000:].strip()
+            except OSError:
+                _tail = ""
+            hint = f"\n[dim]{_tail}[/dim]" if _tail else ""
             console.print(
                 f"[red]EgoVault:[/red] llama-server exited early "
                 f"(code {_server_proc.returncode}). "
-                "Check the model path and GPU drivers."
+                f"Check the model path and GPU drivers.{hint}"
             )
             return False
         if _is_reachable(base_url, timeout=1):

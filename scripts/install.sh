@@ -115,7 +115,7 @@ ok "egovault $($EV_EXE --version 2>/dev/null || true)"
 # -- 5. create data dirs and config inside the install folder -----------------
 DATA_DIR="$INSTALL_DIR/data"
 INBOX_DIR="$INSTALL_DIR/inbox"
-CONFIG_FILE="$INSTALL_DIR/egovault.toml"
+CONFIG_FILE="$DATA_DIR/egovault.toml"
 
 mkdir -p "$DATA_DIR/models"
 mkdir -p "$DATA_DIR/output"
@@ -156,7 +156,7 @@ fi
 
 # -- 7. create ego launcher in current directory ------------------------------
 LAUNCHER="$(pwd)/ego"
-printf '#!/usr/bin/env sh\nexec "%s" "$@"\n' "$EV_EXE" > "$LAUNCHER"
+printf '#!/usr/bin/env sh\ncd "%s"\nexec "%s" "$@"\n' "$INSTALL_DIR" "$EV_EXE" > "$LAUNCHER"
 chmod +x "$LAUNCHER"
 ok "Launcher created: $LAUNCHER"
 
@@ -170,5 +170,6 @@ printf "  ./ego chat       # terminal REPL\n"
 printf "  ./ego web        # Streamlit browser UI\n"
 printf "\nFull docs: https://github.com/milika/EgoVault/blob/main/docs/installation.md\n\n"
 
-# Launch ego chat immediately
+# Launch ego chat immediately (cd so egovault.toml is found)
+cd "$INSTALL_DIR"
 exec "$EV_EXE" chat

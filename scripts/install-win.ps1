@@ -113,7 +113,7 @@ Write-Ok "egovault $evVer"
 # -- 5. create data dirs and config inside the install folder -----------------
 $dataDir   = Join-Path $installDir 'data'
 $inboxDir  = Join-Path $installDir 'inbox'
-$configFile = Join-Path $installDir 'egovault.toml'
+$configFile = Join-Path $dataDir 'egovault.toml'
 
 $dataDirFwd  = $dataDir  -replace '\\', '/'
 $inboxDirFwd = $inboxDir -replace '\\', '/'
@@ -159,7 +159,7 @@ max_results = 5
 
 # -- 7. create ego.cmd launcher in current directory -------------------------
 $launcherPath = Join-Path $PWD 'ego.cmd'
-$launcherContent = "@echo off`r`n`"$evExe`" %*`r`n"
+$launcherContent = "@echo off`r`ncd /d `"$installDir`"`r`n`"$evExe`" %*`r`n"
 [System.IO.File]::WriteAllText($launcherPath, $launcherContent, [System.Text.Encoding]::ASCII)
 Write-Ok "Launcher created: $launcherPath"
 
@@ -176,5 +176,6 @@ Write-Host "  ego web        # Streamlit browser UI"
 Write-Host ""
 Write-Host "Full docs: https://github.com/milika/EgoVault/blob/main/docs/installation.md"
 
-# Launch ego chat immediately
+# Launch ego chat immediately (cd so egovault.toml is found)
+Set-Location $installDir
 & $evExe chat
