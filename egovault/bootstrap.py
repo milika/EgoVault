@@ -198,19 +198,33 @@ def _auto_download_llama_server(console: Console) -> str | None:
 
     assets = release.get("assets", [])
 
+    import platform as _platform
+    _is_arm = _platform.machine().lower() in ("arm64", "aarch64")
+
     def _score(name: str) -> int:
         n = name.lower()
-        if not n.endswith(".zip"):
+        is_archive = n.endswith(".zip") or n.endswith(".tar.gz")
+        if not is_archive:
             return -1
         if not n.startswith("llama-") or "-bin-" not in n:
-            return -1  # skip cudart, source tarballs, etc.
-        if sys.platform == "win32" and ("win" not in n or "x64" not in n):
-            return -1
-        if sys.platform == "darwin" and "macos" not in n and "osx" not in n and "apple" not in n:
-            return -1
-        if sys.platform == "linux" and "linux" not in n:
-            return -1
+            return -1  # skip cudart, source tarballs, xcframework, etc.
+        if sys.platform == "win32":
+            if "win" not in n or not n.endswith(".zip"):
+                return -1
+            if "x64" not in n and "arm64" not in n:
+                return -1
+        elif sys.platform == "darwin":
+            if "macos" not in n and "osx" not in n and "apple" not in n:
+                return -1
+        else:  # linux
+            if "linux" not in n:
+                return -1
         score = 0
+        if sys.platform == "darwin":
+            if _is_arm and "arm64" in n:
+                score += 5  # prefer native arm64 on Apple Silicon
+            elif not _is_arm and "x64" in n:
+                score += 5
         if "cuda" in n:
             score += 10
         if "avx2" in n:
@@ -224,9 +238,9 @@ def _auto_download_llama_server(console: Console) -> str | None:
         logger.error("No suitable llama-server asset found for this platform")
         return None
 
-    def _download_zip(url: str, name: str) -> Path | None:
-        """Download a zip and return its local path, or None on error."""
-        dest_zip = _BIN_DIR / name
+    def _download_archive(url: str, name: str) -> Path | None:
+        """Download an archive (.zip or .tar.gz) and return its local path."""
+        dest_arc = _BIN_DIR / name
         try:
             with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310
                 total = int(t) if (t := response.headers.get("Content-Length")) else None
@@ -236,51 +250,62 @@ def _auto_download_llama_server(console: Console) -> str | None:
                     console=console, transient=True,
                 ) as progress:
                     task = progress.add_task(f"  {name}", total=total)
-                    with open(dest_zip, "wb") as fh:
+                    with open(dest_arc, "wb") as fh:
                         while chunk := response.read(1 << 20):
                             fh.write(chunk)
                             progress.update(task, advance=len(chunk))
         except Exception as exc:
             logger.error("Download failed: %s", exc)
-            dest_zip.unlink(missing_ok=True)
+            dest_arc.unlink(missing_ok=True)
             return None
-        return dest_zip
+        return dest_arc
 
-    def _extract_to_bin(zip_path: Path) -> None:
-        """Extract llama-server binary (and DLLs on Windows) from a zip to _BIN_DIR."""
+    def _extract_to_bin(arc_path: Path) -> None:
+        """Extract llama-server binary (and DLLs on Windows) to _BIN_DIR."""
         try:
-            with zipfile.ZipFile(zip_path) as zf:
-                for member in zf.namelist():
-                    fname = Path(member).name.lower()
-                    is_binary = (
-                        fname in ("llama-server", "llama-server.exe")
-                        or fname.endswith(".dll")
-                    )
-                    if is_binary:
-                        dest = _BIN_DIR / Path(member).name
-                        dest.write_bytes(zf.read(member))
-                        if sys.platform != "win32":
-                            dest.chmod(0o755)
+            name_lower = arc_path.name.lower()
+            if name_lower.endswith(".tar.gz"):
+                import tarfile
+                with tarfile.open(arc_path) as tf:
+                    for member in tf.getmembers():
+                        fname = Path(member.name).name.lower()
+                        if fname in ("llama-server", "llama-server.exe"):
+                            src = tf.extractfile(member)
+                            if src:
+                                dest_file = _BIN_DIR / Path(member.name).name
+                                dest_file.write_bytes(src.read())
+                                dest_file.chmod(0o755)
+            else:
+                with zipfile.ZipFile(arc_path) as zf:
+                    for member in zf.namelist():
+                        fname = Path(member).name.lower()
+                        is_binary = (
+                            fname in ("llama-server", "llama-server.exe")
+                            or fname.endswith(".dll")
+                        )
+                        if is_binary:
+                            d = _BIN_DIR / Path(member).name
+                            d.write_bytes(zf.read(member))
+                            if sys.platform != "win32":
+                                d.chmod(0o755)
         except Exception as exc:
-            logger.error("Extraction error for %s: %s", zip_path.name, exc)
+            logger.error("Extraction error for %s: %s", arc_path.name, exc)
         finally:
-            zip_path.unlink(missing_ok=True)
+            arc_path.unlink(missing_ok=True)
 
-    # Download main binary zip.
     console.print(
         f"[bold]Auto-downloading[/bold] [cyan]{best['name']}[/cyan] "
         f"from llama.cpp releases\u2026"
     )
-    zip_path = _download_zip(best["browser_download_url"], best["name"])
-    if not zip_path:
+    arc_path = _download_archive(best["browser_download_url"], best["name"])
+    if not arc_path:
         return None
-    _extract_to_bin(zip_path)
+    _extract_to_bin(arc_path)
 
-    # Also download the matching CUDA runtime DLLs (cudart-*) so the binary
-    # finds cublas, cudart, etc. at load time.
+    # Also download the matching CUDA runtime DLLs (cudart-*) on Windows.
     import re as _re
     m = _re.search(r"cuda[-_]([\d.]+)", best["name"].lower())
-    if m:
+    if m and sys.platform == "win32":
         cuda_ver = m.group(1)
         cudart_name = f"cudart-llama-bin-win-cuda-{cuda_ver}-x64.zip"
         cudart_asset = next(
@@ -288,9 +313,9 @@ def _auto_download_llama_server(console: Console) -> str | None:
         )
         if cudart_asset:
             console.print(f"[dim]Fetching CUDA runtime DLLs ({cudart_name})\u2026[/dim]")
-            cudart_zip = _download_zip(cudart_asset["browser_download_url"], cudart_name)
-            if cudart_zip:
-                _extract_to_bin(cudart_zip)
+            cudart_arc = _download_archive(cudart_asset["browser_download_url"], cudart_name)
+            if cudart_arc:
+                _extract_to_bin(cudart_arc)
 
     if not dest.exists():
         logger.error("%s not found in zip archive", exe_name)
