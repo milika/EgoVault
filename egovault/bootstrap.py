@@ -169,11 +169,19 @@ def _llama_server_exe() -> str | None:
     return None
 
 
-def _auto_download_llama_server(console: Console) -> str | None:
+# Sidecar file that records which release asset is currently in _BIN_DIR.
+_ASSET_SOURCE = _BIN_DIR / ".llama-server-source"
+
+
+def _auto_download_llama_server(
+    console: Console,
+    blacklist: frozenset[str] = frozenset(),
+) -> str | None:
     """Download the llama-server binary from the latest llama.cpp GitHub release.
 
     Picks a Windows x64 CUDA build when available, otherwise the CPU build.
-    Extracts ``llama-server.exe`` to ``./bin/`` and returns its path.
+    Extracts ``llama-server.(exe)`` to ``./bin/`` and returns its path.
+    *blacklist* is a set of asset names to never pick (used after a crash-retry).
     Returns None on any error.
     """
     from rich.progress import (
@@ -237,7 +245,9 @@ def _auto_download_llama_server(console: Console) -> str | None:
             score -= 3
         return score
 
-    best = max(assets, key=lambda a: _score(a["name"]), default=None)
+    # Filter out any assets the caller wants to skip (e.g. previously crashed).
+    candidates = [a for a in assets if a["name"] not in blacklist]
+    best = max(candidates, key=lambda a: _score(a["name"]), default=None)
     if not best or _score(best["name"]) < 0:
         logger.error("No suitable llama-server asset found for this platform")
         return None
@@ -324,6 +334,13 @@ def _auto_download_llama_server(console: Console) -> str | None:
     if not dest.exists():
         logger.error("%s not found in zip archive", exe_name)
         return None
+
+    # Record which asset is installed so crash-retry can exclude it.
+    try:
+        _ASSET_SOURCE.parent.mkdir(parents=True, exist_ok=True)
+        _ASSET_SOURCE.write_text(best["name"], encoding="utf-8")
+    except OSError:
+        pass
 
     console.print(
         f"[green]\u2713[/green] llama-server installed at [bold]{dest}[/bold]"
@@ -539,6 +556,7 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
     last_dot = 0
     while time.monotonic() < deadline:
         if _server_proc.poll() is not None:
+            rc = _server_proc.returncode
             # Show the last few lines of stderr to aid debugging.
             try:
                 with open(_stderr_file.name, encoding="utf-8", errors="replace") as _fh:
@@ -546,9 +564,50 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
             except OSError:
                 _tail = ""
             hint = f"\n[dim]{_tail}[/dim]" if _tail else ""
+
+            # ── Crash-retry: if the binary was auto-downloaded and crashed
+            # with a signal (negative code on Unix = SIGABRT / SIGILL etc.),
+            # delete it and try an alternative release asset. ────────────────
+            _local_exe = _BIN_DIR / ("llama-server.exe" if sys.platform == "win32" else "llama-server")
+            _is_local = cmd[0] == str(_local_exe) and _local_exe.exists()
+            if rc < 0 and _is_local:
+                bad_asset = ""
+                try:
+                    bad_asset = _ASSET_SOURCE.read_text(encoding="utf-8").strip()
+                except OSError:
+                    pass
+                if bad_asset:
+                    console.print(
+                        f"[yellow]llama-server crashed (signal {-rc}) "
+                        f"\u2014 {bad_asset} is incompatible with this CPU. "
+                        f"Retrying with a different build\u2026[/yellow]"
+                    )
+                    _local_exe.unlink(missing_ok=True)
+                    _ASSET_SOURCE.unlink(missing_ok=True)
+                    llama_exe = _auto_download_llama_server(
+                        console, blacklist=frozenset({bad_asset})
+                    )
+                    if llama_exe:
+                        # Update cmd to use new binary and restart.
+                        cmd[0] = llama_exe
+                        _stderr_file2 = _tempfile.NamedTemporaryFile(  # noqa: SIM115
+                            mode="w", suffix="-llama-stderr.txt", delete=False
+                        )
+                        _server_proc = subprocess.Popen(  # noqa: S603
+                            cmd,
+                            stdout=subprocess.DEVNULL,
+                            stderr=_stderr_file2,
+                            env={**os.environ},
+                        )
+                        _stderr_file2.close()
+                        _stderr_file = _stderr_file2
+                        deadline = time.monotonic() + 60
+                        last_dot = 0
+                        continue
+
             console.print(
                 f"[red]EgoVault:[/red] llama-server exited early "
-                f"(code {_server_proc.returncode}). "
+                f"(code {rc}). "
                 f"Check the model path and GPU drivers.{hint}"
             )
             return False
