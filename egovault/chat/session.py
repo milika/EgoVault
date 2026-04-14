@@ -3797,6 +3797,18 @@ def _tool_launch_frontend(
         if port:
             extra += ["--port", str(int(port))]
 
+        # Guard against launching a second web instance when one is already
+        # running (e.g. started by the CLI before the TUI was opened).
+        import socket as _socket
+        _web_port = int(args.get("port", 8501))
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _s:
+            _already_up = _s.connect_ex(("127.0.0.1", _web_port)) == 0
+        if _already_up:
+            _wan_url = os.environ.get("EGOVAULT_WAN_URL", "")
+            _url = f"http://localhost:{_web_port}"
+            _label = _url + (f" (WAN: {_wan_url})" if _wan_url else "")
+            return f"FRONTEND_LAUNCHED:web — web interface is already running at {_label}"
+
     try:
         if _sys.platform == "win32":
             proc = _subprocess.Popen(

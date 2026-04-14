@@ -874,6 +874,11 @@ if prompt:
         def _progress_cb(label: str) -> None:
             progress_lines.append(label)
 
+        # Snapshot session_state values in the main thread — st.session_state is
+        # not accessible from background threads (no ScriptRunContext).
+        _owner_profile_snap = st.session_state.get("owner_profile", "")
+        _top_n_snap = st.session_state.get("top_n", 10)
+
         def _run() -> None:
             from egovault.core.store import VaultStore as _VS
             thread_store = _VS(settings.vault_db)
@@ -883,9 +888,9 @@ if prompt:
                 thread_ctx: dict = {
                     "settings": settings,
                     "last_sources": [],
-                    "owner_profile": st.session_state.owner_profile,
+                    "owner_profile": _owner_profile_snap,
                     "owner_profile_ref": {},
-                    "top_n": st.session_state.get("top_n", 10),
+                    "top_n": _top_n_snap,
                     "scheduler": scheduler,
                     "notice_queue": _notice_q,
                 }
