@@ -3,13 +3,14 @@
 # Usage: irm https://raw.githubusercontent.com/milika/EgoVault/main/scripts/install-win.ps1 | iex
 #
 # What this script does:
-#   1. Verifies Python 3.11+ is available
-#   2. Installs pipx if not present
-#   3. Installs (or upgrades) egovault via pipx
-#   4. Writes a default egovault.toml to ~\.config\egovault\
-#   5. Creates inbox and data directories
+#   1. Verifies Python 3.11+ (with pip) is available
+#   2. Creates a .venv at ~\.egovault\venv
+#   3. Installs (or upgrades) egovault into that venv
+#   4. Adds the venv Scripts dir to the user PATH permanently
+#   5. Writes a default egovault.toml to ~\.config\egovault\
+#   6. Creates inbox and data directories
 #
-# Safe to re-run — existing config is never overwritten.
+# Safe to re-run — existing config and venv are never clobbered.
 
 [CmdletBinding()]
 param()
@@ -54,51 +55,44 @@ Python 3.11 or later with pip is required but was not found.
 
 Write-Ok "Python: $(& $python --version)"
 
-# ── 2. ensure pipx ────────────────────────────────────────────────────────────
-$pipxCmd = Get-Command pipx -ErrorAction SilentlyContinue
-
-if (-not $pipxCmd) {
-    Write-Info "pipx not found — installing..."
-    & $python -m pip install --user --quiet pipx
-
-    # Refresh PATH from current user environment variables.
-    $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
-    if ($userPath) {
-        $env:PATH = "$userPath;$env:PATH"
-    }
-    # Also add the Python user Scripts directory explicitly.
-    $userScripts = & $python -c "import site; print(site.getusersitepackages())" 2>$null
-    if ($userScripts) {
-        $userScripts = Split-Path $userScripts -Parent | Join-Path -ChildPath 'Scripts'
-        $env:PATH = "$userScripts;$env:PATH"
-    }
-
-    $pipxCmd = Get-Command pipx -ErrorAction SilentlyContinue
-    if (-not $pipxCmd) {
-        Write-Fail @"
-pipx was installed but is not in PATH.
-  Run:  $python -m pipx ensurepath
-  Then restart PowerShell and re-run this script.
-"@
-    }
+# ── 2. create / reuse venv ────────────────────────────────────────────────────
+$venvDir = Join-Path $HOME '.egovault\venv'
+if (Test-Path (Join-Path $venvDir 'Scripts\python.exe')) {
+    Write-Info "Using existing venv at $venvDir"
+} else {
+    Write-Info "Creating venv at $venvDir ..."
+    & $python -m venv $venvDir
+    if ($LASTEXITCODE -ne 0) { Write-Fail "Failed to create venv at $venvDir" }
 }
 
-Write-Ok "pipx $(& pipx --version)"
+$venvPython = Join-Path $venvDir 'Scripts\python.exe'
+$venvPip    = Join-Path $venvDir 'Scripts\pip.exe'
+$venvScripts = Join-Path $venvDir 'Scripts'
 
-# ── 3. install / upgrade egovault ─────────────────────────────────────────────
-$pipxList = & pipx list 2>$null
-if ($pipxList -match 'package egovault') {
+# ── 3. install / upgrade egovault into the venv ───────────────────────────────
+$installed = & $venvPip show egovault 2>$null
+if ($installed) {
     Write-Info "egovault already installed — upgrading..."
-    & pipx upgrade egovault
+    & $venvPip install --upgrade --quiet egovault
 } else {
     Write-Info "Installing egovault..."
-    & pipx install egovault
+    & $venvPip install --quiet egovault
 }
+if ($LASTEXITCODE -ne 0) { Write-Fail "pip install egovault failed." }
+
+# ── 4. add venv Scripts to user PATH (permanent) ─────────────────────────────
+$userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User') ?? ''
+if ($userPath -notlike "*$venvScripts*") {
+    [System.Environment]::SetEnvironmentVariable('PATH', "$venvScripts;$userPath", 'User')
+    Write-Info "Added $venvScripts to user PATH."
+}
+# Also update the current session so egovault is usable right away.
+$env:PATH = "$venvScripts;$env:PATH"
 
 $evVer = & egovault --version 2>$null
 Write-Ok "egovault $evVer"
 
-# ── 4. paths ──────────────────────────────────────────────────────────────────
+# ── 5. paths ──────────────────────────────────────────────────────────────────
 $configDir  = Join-Path $HOME '.config\egovault'
 $configFile = Join-Path $configDir 'egovault.toml'
 $dataDir    = Join-Path $HOME '.local\share\egovault'
@@ -113,7 +107,7 @@ New-Item -ItemType Directory -Force -Path "$dataDir\models"       | Out-Null
 New-Item -ItemType Directory -Force -Path "$dataDir\output"       | Out-Null
 New-Item -ItemType Directory -Force -Path $inboxDir               | Out-Null
 
-# ── 5. write default config (only if missing) ─────────────────────────────────
+# ── 6. write default config (only if missing) ─────────────────────────────────
 if (Test-Path $configFile) {
     Write-Warn "Config already exists at $configFile — skipping."
 } else {
@@ -162,7 +156,5 @@ Write-Host ""
 Write-Host "Full docs: https://github.com/milika/EgoVault/blob/main/docs/installation.md"
 Write-Host ""
 
-# Remind the user if egovault is not yet on PATH.
-if (-not (Get-Command egovault -ErrorAction SilentlyContinue)) {
-    Write-Warn "'egovault' not yet in PATH — run: pipx ensurepath  then restart PowerShell."
-}
+# Remind the user to restart their shell so the updated PATH takes effect.
+Write-Warn "Restart PowerShell (or open a new terminal) so 'egovault' is available everywhere."
