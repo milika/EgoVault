@@ -31,8 +31,14 @@ foreach ($cmd in @('python3.13', 'python3.12', 'python3.11', 'python3', 'python'
         $ver = & $exe.Path -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
         if (($ver -as [int]) -ge 311) {
             # Skip interpreters without pip (e.g. MSYS2, store stub)
-            $null = & $exe.Path -m pip --version 2>&1
-            if ($LASTEXITCODE -ne 0) {
+            $hasPip = $false
+            try {
+                $ErrorActionPreference = 'Continue'
+                $null = & $exe.Path -m pip --version 2>&1
+                $hasPip = ($LASTEXITCODE -eq 0)
+            } catch { $hasPip = $false }
+            finally { $ErrorActionPreference = 'Stop' }
+            if (-not $hasPip) {
                 Write-Warn "Skipping $($exe.Path) — no pip available"
                 continue
             }
