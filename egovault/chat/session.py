@@ -1091,6 +1091,37 @@ _VAULT_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "get_enrichment_stats",
+            "description": (
+                "Return LLM enrichment pipeline statistics: how many records have been enriched "
+                "(processed by the background LLM pipeline), how many are still pending, "
+                "and a per-platform breakdown. "
+                "ALWAYS call this tool when the user asks: "
+                "'how many X did we enrich?', 'how many pictures/emails/files have been enriched?', "
+                "'how many records are enriched?', 'enrichment progress', 'what has been enriched?'. "
+                "'Enrich' here refers to the background LLM processing pipeline — NOT vault search. "
+                "Pass record_type to filter by content type (e.g. 'image' for pictures/photos). "
+                "Do NOT call search_vault for enrichment-status questions — call this tool instead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "record_type": {
+                        "type": "string",
+                        "description": (
+                            "Optional content-type filter. "
+                            "'image' (or 'photo', 'picture') — restrict to image files. "
+                            "Omit to return stats across all record types."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_file",
             "description": (
                 "Read the full text content of a specific file on disk. "
@@ -2165,6 +2196,7 @@ def _execute_tool_impl(
         "search_vault": _tool_search_vault,
         "count_records": _tool_count_records,
         "get_vault_stats": _tool_get_vault_stats,
+        "get_enrichment_stats": _tool_get_enrichment_stats,
         "scan_folder": _tool_scan_folder,
         "get_sources": _tool_get_sources,
         "get_status": _tool_get_status,
@@ -2532,6 +2564,29 @@ def _tool_get_vault_stats(
     session_ctx: "dict | None",
 ) -> str:
     return vault_summary_context(store) or "The vault is empty."
+
+
+def _tool_get_enrichment_stats(
+    args: dict,
+    store: "VaultStore",
+    top_n: int,
+    collected_chunks: list,
+    session_ctx: "dict | None",
+) -> str:
+    record_type = (args.get("record_type") or "").strip() or None
+    stats = store.get_enrichment_stats(record_type=record_type)
+    type_label = record_type or "all types"
+    lines = [
+        f"Enrichment stats ({type_label}):",
+        f"  Enriched:  {stats['enriched']}",
+        f"  Total:     {stats['total']}",
+        f"  Pending:   {stats['pending']}",
+    ]
+    if len(stats["breakdown_by_platform"]) > 1:
+        lines.append("  By platform:")
+        for p in stats["breakdown_by_platform"]:
+            lines.append(f"    {p['platform']}: {p['enriched']} / {p['total']} enriched")
+    return "\n".join(lines)
 
 
 def _tool_scan_folder(
@@ -4229,6 +4284,11 @@ def _call_llm_agent(
                     + ")"
                 ),
                 "get_vault_stats": lambda a: "⚙ get_vault_stats()",
+                "get_enrichment_stats": lambda a: (
+                    "⚙ get_enrichment_stats("
+                    + (f"record_type={a['record_type']}" if a.get("record_type") else "")
+                    + ")"
+                ),
                 "read_file": lambda a: f"⚙ read_file({a.get('path','')})",
                 "list_directory": lambda a: f"⚙ list_directory({a.get('path','')})",
                 "scan_folder": lambda a: f"⚙ scan_folder({a.get('path','')})",
@@ -4441,6 +4501,16 @@ def _call_llm_agent(
                 size_m = re.search(r"Size: (.+)", result)
                 size_info = size_m.group(1) if size_m else ""
                 answer = f"Downloaded to **{saved_path}**" + (f" ({size_info})" if size_info else "") + "."
+                if saved_path and session_ctx is not None:
+                    session_ctx["last_file"] = saved_path
+                return answer, last_data, collected_chunks
+
+            # Short-circuit: fetch_attachment — confirm save and surface path.
+            if tool_name == "fetch_attachment" and result.startswith("ATTACHMENT_SAVED:"):
+                path_m = re.search(r"ATTACHMENT_SAVED:(.+?)(?:\n|$)", result)
+                saved_path = path_m.group(1).strip() if path_m else ""
+                att_name = raw_args.get("attachment_name", "attachment")
+                answer = f"Attachment **{att_name}** saved to: {saved_path}"
                 if saved_path and session_ctx is not None:
                     session_ctx["last_file"] = saved_path
                 return answer, last_data, collected_chunks
@@ -5262,6 +5332,16 @@ def run_chat_session(store: VaultStore, settings: Settings) -> None:
         console.print()
         console.print(Markdown(answer))
         console.print()
+
+        # TUI cannot display images: print the full path of every saved
+        # attachment/file so the user can open it themselves.
+        _tui_files = _session_ctx.get("saved_attachments", [])
+        if _tui_files:
+            for _fp in _tui_files:
+                console.print(f"[dim]📎 File saved:[/dim] [cyan]{_fp}[/cyan]")
+            console.print()
+            _session_ctx["saved_attachments"] = []   # clear after printing
+
         meta_parts: list[str] = []
         if last_sources:
             meta_parts.append(

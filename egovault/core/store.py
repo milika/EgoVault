@@ -673,6 +673,70 @@ class VaultStore:
             params,
         ).fetchall()
 
+    def get_enrichment_stats(self, record_type: str | None = None) -> dict:
+        """Return LLM enrichment pipeline statistics.
+
+        *record_type* — "image"/"photo"/"picture" restricts counts to image files.
+        Omit for a full cross-type count.
+
+        Returns::
+
+            {
+                "enriched": int,          # records that have an enrichment_results row
+                "total": int,             # total matching records in vault
+                "pending": int,           # total - enriched
+                "breakdown_by_platform": [{"platform": str, "enriched": int, "total": int}, ...]
+            }
+        """
+        _IMAGE_EXTS = ("jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "heic", "svg")
+        _normalized = (record_type or "").lower().strip()
+
+        type_cond = ""
+        if _normalized in ("image", "photo", "picture", "img"):
+            ext_checks = " OR ".join(
+                f"LOWER(nr.file_path) LIKE '%.{e}'" for e in _IMAGE_EXTS
+            )
+            type_cond = f"AND (nr.mime_type LIKE 'image/%' OR {ext_checks})"
+
+        enriched_row = self._con.execute(
+            f"""
+            SELECT COUNT(DISTINCT er.record_id) AS n
+            FROM enrichment_results er
+            JOIN normalized_records nr ON er.record_id = nr.id
+            WHERE 1=1 {type_cond}
+            """
+        ).fetchone()
+        enriched = enriched_row["n"] if enriched_row else 0
+
+        total_row = self._con.execute(
+            f"SELECT COUNT(*) AS n FROM normalized_records nr WHERE 1=1 {type_cond.replace('nr.', 'nr.')}"
+        ).fetchone()
+        total = total_row["n"] if total_row else 0
+
+        breakdown_rows = self._con.execute(
+            f"""
+            SELECT nr.platform,
+                   COUNT(*) AS total,
+                   COUNT(er.record_id) AS enriched_count
+            FROM normalized_records nr
+            LEFT JOIN enrichment_results er ON er.record_id = nr.id
+            WHERE 1=1 {type_cond}
+            GROUP BY nr.platform
+            ORDER BY total DESC
+            """
+        ).fetchall()
+        breakdown = [
+            {"platform": r["platform"], "enriched": r["enriched_count"], "total": r["total"]}
+            for r in breakdown_rows
+        ]
+
+        return {
+            "enriched": enriched,
+            "total": total,
+            "pending": max(0, total - enriched),
+            "breakdown_by_platform": breakdown,
+        }
+
     def vault_stats(self) -> dict:
         """Return a dict with basic vault statistics for context injection.
 
