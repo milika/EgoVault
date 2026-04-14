@@ -1,92 +1,101 @@
 #!/usr/bin/env sh
-# EgoVault — one-liner installer for Linux and macOS
+# EgoVault - one-liner installer for Linux and macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/milika/EgoVault/main/scripts/install.sh | sh
 #
 # What this script does:
-#   1. Verifies Python 3.11+ is available
-#   2. Installs pipx if not present
-#   3. Installs (or upgrades) egovault via pipx
-#   4. Writes a default egovault.toml to ~/.config/egovault/
-#   5. Creates inbox and data directories
+#   1. Verifies Python 3.11+ (with pip) is available
+#   2. Creates an egovault/ folder in the current directory
+#   3. Creates a .venv inside that folder
+#   4. Installs egovault into the venv
+#   5. Writes egovault.toml, inbox/, data/ all inside the folder
+#   6. Creates an ego launcher script in the current directory
+#   7. Launches ego chat
 #
-# Safe to re-run — existing config is never overwritten.
+# Run this from wherever you want EgoVault to live, e.g.:
+#   cd ~/Projects
+#   curl -fsSL https://raw.githubusercontent.com/milika/EgoVault/main/scripts/install.sh | sh
+#
+# Safe to re-run - existing config and venv are never clobbered.
 
 set -e
 
-# ── colours (disabled when not a tty) ─────────────────────────────────────────
+# -- colours (disabled when not a tty) ----------------------------------------
 if [ -t 1 ]; then
     BOLD='\033[1m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
     YELLOW='\033[1;33m'; RED='\033[0;31m'; RESET='\033[0m'
 else
     BOLD=''; GREEN=''; CYAN=''; YELLOW=''; RED=''; RESET=''
 fi
-info() { printf "${CYAN}[info]${RESET}  %s\n" "$*"; }
-ok()   { printf "${GREEN}[ok]${RESET}    %s\n" "$*"; }
-warn() { printf "${YELLOW}[warn]${RESET}  %s\n" "$*"; }
-die()  { printf "${RED}[error]${RESET} %s\n" "$*" >&2; exit 1; }
+info() { printf "${CYAN}[info]  ${RESET}%s\n" "$*"; }
+ok()   { printf "${GREEN}[ok]    ${RESET}%s\n" "$*"; }
+warn() { printf "${YELLOW}[warn]  ${RESET}%s\n" "$*"; }
+die()  { printf "${RED}[error] ${RESET}%s\n" "$*" >&2; exit 1; }
 
-# ── 1. locate Python 3.11+ ────────────────────────────────────────────────────
+# -- 1. locate Python 3.11+ with pip ------------------------------------------
 PYTHON=""
 for cmd in python3.13 python3.12 python3.11 python3 python; do
     if command -v "$cmd" >/dev/null 2>&1; then
         py_ver=$("$cmd" -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>/dev/null || true)
         if [ -n "$py_ver" ] && [ "$py_ver" -ge 311 ] 2>/dev/null; then
-            PYTHON="$cmd"
-            break
+            # Skip interpreters without pip
+            if "$cmd" -m pip --version >/dev/null 2>&1; then
+                PYTHON="$cmd"
+                break
+            else
+                warn "Skipping $cmd - no pip available"
+            fi
         fi
     fi
 done
 
 if [ -z "$PYTHON" ]; then
-    die "Python 3.11 or later is required.
+    die "Python 3.11 or later with pip is required.
   macOS:   brew install python           (https://brew.sh)
-  Ubuntu:  sudo apt install python3.11
+  Ubuntu:  sudo apt install python3.11 python3.11-venv
   Other:   https://www.python.org/downloads/"
 fi
 ok "Python: $($PYTHON --version)"
 
-# ── 2. ensure pipx ────────────────────────────────────────────────────────────
-if ! command -v pipx >/dev/null 2>&1; then
-    info "pipx not found — installing..."
-    "$PYTHON" -m pip install --user --quiet pipx
+# -- 2. create install folder in current directory ----------------------------
+INSTALL_DIR="$(pwd)/egovault"
+VENV_DIR="$INSTALL_DIR/.venv"
+VENV_BIN="$VENV_DIR/bin"
+VENV_PIP="$VENV_BIN/pip"
+EV_EXE="$VENV_BIN/egovault"
 
-    # Add the user script directory to PATH for the rest of this session.
-    USER_BIN="$($PYTHON -m site --user-base)/bin"
-    export PATH="$PATH:$USER_BIN"
+mkdir -p "$INSTALL_DIR"
+info "Install directory: $INSTALL_DIR"
 
-    if ! command -v pipx >/dev/null 2>&1; then
-        "$PYTHON" -m pipx ensurepath >/dev/null 2>&1 || true
-        die "pipx was installed but is not in PATH.
-  Add '$USER_BIN' to your PATH (or run: $PYTHON -m pipx ensurepath)
-  then re-run this script."
-    fi
+# -- 3. create / reuse venv ---------------------------------------------------
+if [ -f "$VENV_BIN/python" ]; then
+    info "Using existing venv at $VENV_DIR"
+else
+    info "Creating venv ..."
+    "$PYTHON" -m venv "$VENV_DIR"
 fi
-ok "pipx $(pipx --version)"
 
-# ── 3. install / upgrade egovault ─────────────────────────────────────────────
-if pipx list 2>/dev/null | grep -qF 'package egovault'; then
-    info "egovault already installed — upgrading..."
-    pipx upgrade egovault
+# -- 4. install / upgrade egovault into the venv ------------------------------
+if "$VENV_PIP" show egovault >/dev/null 2>&1; then
+    info "egovault already installed - upgrading..."
+    "$VENV_PIP" install --upgrade --progress-bar on egovault
 else
     info "Installing egovault..."
-    pipx install egovault
+    "$VENV_PIP" install --progress-bar on egovault
 fi
-ok "egovault $(egovault --version 2>/dev/null || true)"
+ok "egovault $($EV_EXE --version 2>/dev/null || true)"
 
-# ── 4. paths ──────────────────────────────────────────────────────────────────
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/egovault"
-CONFIG_FILE="$CONFIG_DIR/egovault.toml"
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/egovault"
-INBOX_DIR="$HOME/Documents/egovault-inbox"
+# -- 5. create data dirs and config inside the install folder -----------------
+DATA_DIR="$INSTALL_DIR/data"
+INBOX_DIR="$INSTALL_DIR/inbox"
+CONFIG_FILE="$INSTALL_DIR/egovault.toml"
 
-mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR/models"
 mkdir -p "$DATA_DIR/output"
 mkdir -p "$INBOX_DIR"
 
-# ── 5. write default config (only if missing) ─────────────────────────────────
+# -- 6. write default config (only if missing) --------------------------------
 if [ -f "$CONFIG_FILE" ]; then
-    warn "Config already exists at $CONFIG_FILE — skipping."
+    warn "Config already exists at $CONFIG_FILE - skipping."
 else
     cat > "$CONFIG_FILE" <<EOF
 [general]
@@ -117,18 +126,21 @@ EOF
     ok "Config written to $CONFIG_FILE"
 fi
 
-# ── done ──────────────────────────────────────────────────────────────────────
+# -- 7. create ego launcher in current directory ------------------------------
+LAUNCHER="$(pwd)/ego"
+printf '#!/usr/bin/env sh\nexec "%s" "$@"\n' "$EV_EXE" > "$LAUNCHER"
+chmod +x "$LAUNCHER"
+ok "Launcher created: $LAUNCHER"
+
+# -- done ---------------------------------------------------------------------
 printf "\n${BOLD}EgoVault is ready!${RESET}\n"
-printf "  vault DB  :  %s\n" "$DATA_DIR/vault.db"
-printf "  inbox     :  %s\n" "$INBOX_DIR"
-printf "  config    :  %s\n" "$CONFIG_FILE"
-printf "\nNext steps:\n"
-printf "  1. Drop files into ~/Documents/egovault-inbox\n"
-printf "  2. egovault chat       # terminal REPL\n"
-printf "  3. egovault web        # Streamlit browser UI\n"
+printf "  folder :  %s\n" "$INSTALL_DIR"
+printf "  inbox  :  %s\n" "$INBOX_DIR"
+printf "  config :  %s\n" "$CONFIG_FILE"
+printf "\nTo start (from this folder):\n"
+printf "  ./ego chat       # terminal REPL\n"
+printf "  ./ego web        # Streamlit browser UI\n"
 printf "\nFull docs: https://github.com/milika/EgoVault/blob/main/docs/installation.md\n\n"
 
-# Remind the user to reload PATH if pipx was just installed.
-if ! command -v egovault >/dev/null 2>&1; then
-    warn "'egovault' not yet in PATH — run: source ~/.profile  (or restart your shell)"
-fi
+# Launch ego chat immediately
+exec "$EV_EXE" chat
