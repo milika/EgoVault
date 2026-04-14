@@ -21,7 +21,7 @@ license: mit
 
 > ⚠️ **This is a UI demo with synthetic data and the HF Inference API standing in for local llama-server.**
 > EgoVault is designed to run **100% locally** — no cloud, no data leaving your machine.
-> [Get the real thing on GitHub →](https://github.com/milika/egovault)
+> [Get the real thing on GitHub →](https://github.com/milika/EgoVault)
 
 ## What this demo shows
 
