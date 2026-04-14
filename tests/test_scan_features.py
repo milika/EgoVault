@@ -249,7 +249,7 @@ class TestHandleScan:
     def test_scan_dir_with_only_unsupported_files(
         self, store: VaultStore, settings: Settings, tmp_path: Path
     ) -> None:
-        (tmp_path / "image.png").write_bytes(b"\x89PNG")
+        (tmp_path / "archive.xyz").write_bytes(b"garbage")
         out = self._run(f"/scan {tmp_path}", store, settings)
         assert "no supported" in out.lower()
 

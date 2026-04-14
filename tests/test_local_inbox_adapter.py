@@ -55,7 +55,7 @@ def test_can_handle_empty_dir(adapter: LocalInboxAdapter, tmp_path: Path) -> Non
 
 
 def test_can_handle_dir_with_unsupported_files(adapter: LocalInboxAdapter, tmp_path: Path) -> None:
-    (tmp_path / "image.png").write_bytes(b"\x89PNG")
+    (tmp_path / "archive.xyz").write_bytes(b"garbage")
     assert adapter.can_handle(tmp_path) is False
 
 

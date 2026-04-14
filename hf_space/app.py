@@ -133,6 +133,82 @@ def _get_db() -> sqlite3.Connection:
 
 
 # ---------------------------------------------------------------------------
+# Slash command handler
+# ---------------------------------------------------------------------------
+
+_HELP_TEXT = """\
+**EgoVault commands** (demo mode — synthetic vault):
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show this help |
+| `/status` | Vault stats |
+| `/list` | List all records |
+| `/search <query>` | Keyword search |
+
+Or just type a question in plain English — e.g. *"When is Marco's sister's birthday dinner?"*
+
+> In the **local version**, `/ingest`, `/enrich`, `/embed`, `/schedule`, and many more commands are available.
+> [Get the real EgoVault →](https://github.com/milika/EgoVault)
+"""
+
+
+def _handle_slash(cmd: str) -> str | None:
+    """Return a canned response for slash commands, or None if not a command."""
+    cmd = cmd.strip()
+    if not cmd.startswith("/"):
+        return None
+
+    parts = cmd.split(None, 1)
+    verb = parts[0].lower()
+    arg = parts[1] if len(parts) > 1 else ""
+
+    con = _get_db()
+
+    if verb == "/help":
+        return _HELP_TEXT
+
+    if verb == "/status":
+        total = con.execute("SELECT COUNT(*) FROM normalized_records").fetchone()[0]
+        rows = con.execute(
+            "SELECT platform, COUNT(*) c FROM normalized_records GROUP BY platform ORDER BY c DESC"
+        ).fetchall()
+        lines = ["**Vault status (demo)**\n", f"- Total records: **{total}**"]
+        for r in rows:
+            lines.append(f"- {r['platform']}: {r['c']}")
+        lines += [
+            "",
+            "*In the local version, `/status` also shows enrichment progress, embedding coverage, "
+            "llama-server state, and scheduled tasks.*",
+        ]
+        return "\n".join(lines)
+
+    if verb == "/list":
+        rows = con.execute(
+            "SELECT platform, record_type, timestamp, sender_name, thread_name "
+            "FROM normalized_records ORDER BY timestamp DESC"
+        ).fetchall()
+        lines = [f"**All {len(rows)} records in the demo vault:**\n"]
+        for r in rows:
+            lines.append(
+                f"- `{r['platform']}` · {r['record_type']} · {r['timestamp'][:10]} "
+                f"· **{r['thread_name']}** (from {r['sender_name']})"
+            )
+        return "\n".join(lines)
+
+    if verb == "/search":
+        if not arg:
+            return "Usage: `/search <query>`"
+        return None  # fall through to normal FTS search with the arg
+
+    # Unknown command
+    return (
+        f"Unknown command: `{verb}`\n\n"
+        "Type `/help` for available commands, or ask a question in plain English."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------
 
@@ -268,45 +344,63 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-if prompt := st.chat_input("Ask about your vault…"):
+if prompt := st.chat_input("Ask about your vault… or type /help"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    results = _search(prompt, top_n)
-    answer = ""
+    # Check for slash commands first
+    slash_response = _handle_slash(prompt)
+    # /search <arg> — strip the verb and search the arg
+    if prompt.strip().lower().startswith("/search "):
+        search_query = prompt.strip()[8:].strip()
+        slash_response = None  # fall through to normal path
+    else:
+        search_query = prompt
 
-    with st.chat_message("assistant"):
-        if not results:
-            answer = "I couldn't find any relevant records for that query in the demo vault."
-            st.markdown(answer)
-        else:
-            placeholder = st.empty()
-            try:
-                for chunk in _chat_stream(prompt, st.session_state.conv_history, results):
-                    answer += chunk
-                    placeholder.markdown(answer + "▌")
-                placeholder.markdown(answer)
-            except Exception as exc:
-                answer = (
-                    f"⚠️ LLM unavailable ({exc}).\n\n"
-                    f"**Raw retrieved records:**\n\n{_format_context(results)}"
-                )
-                placeholder.markdown(answer)
+    if slash_response is not None:
+        with st.chat_message("assistant"):
+            st.markdown(slash_response)
+        st.session_state.conv_history.extend([
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": slash_response},
+        ])
+        st.session_state.messages.append({"role": "assistant", "content": slash_response})
+    else:
+        results = _search(search_query, top_n)
+        answer = ""
 
-        if results:
-            with st.expander(f"📄 {len(results)} source(s) retrieved"):
-                for r in results:
-                    st.markdown(
-                        f"**{r['platform']} · {r['thread_name']}**  "
-                        f"({r['timestamp'][:10]})"
+        with st.chat_message("assistant"):
+            if not results:
+                answer = "I couldn't find any relevant records for that query in the demo vault."
+                st.markdown(answer)
+            else:
+                placeholder = st.empty()
+                try:
+                    for chunk in _chat_stream(prompt, st.session_state.conv_history, results):
+                        answer += chunk
+                        placeholder.markdown(answer + "▌")
+                    placeholder.markdown(answer)
+                except Exception as exc:
+                    answer = (
+                        f"⚠️ LLM unavailable ({exc}).\n\n"
+                        f"**Raw retrieved records:**\n\n{_format_context(results)}"
                     )
-                    body_preview = r["body"][:200] + ("…" if len(r["body"]) > 200 else "")
-                    st.caption(body_preview)
-                    st.divider()
+                    placeholder.markdown(answer)
 
-    st.session_state.conv_history.extend([
-        {"role": "user", "content": prompt},
-        {"role": "assistant", "content": answer},
-    ])
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+            if results:
+                with st.expander(f"📄 {len(results)} source(s) retrieved"):
+                    for r in results:
+                        st.markdown(
+                            f"**{r['platform']} · {r['thread_name']}**  "
+                            f"({r['timestamp'][:10]})"
+                        )
+                        body_preview = r["body"][:200] + ("…" if len(r["body"]) > 200 else "")
+                        st.caption(body_preview)
+                        st.divider()
+
+        st.session_state.conv_history.extend([
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": answer},
+        ])
+        st.session_state.messages.append({"role": "assistant", "content": answer})
