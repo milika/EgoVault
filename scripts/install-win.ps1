@@ -22,13 +22,19 @@ function Write-Ok    { param($m) Write-Host "[ok]    $m" -ForegroundColor Green 
 function Write-Warn  { param($m) Write-Host "[warn]  $m" -ForegroundColor Yellow }
 function Write-Fail  { param($m) Write-Host "[error] $m" -ForegroundColor Red; throw $m }
 
-# ── 1. locate Python 3.11+ ────────────────────────────────────────────────────
+# ── 1. locate Python 3.11+ with pip ──────────────────────────────────────────
 $python = $null
 foreach ($cmd in @('python3.13', 'python3.12', 'python3.11', 'python3', 'python')) {
     $exe = Get-Command $cmd -ErrorAction SilentlyContinue
     if ($exe) {
         $ver = & $exe.Path -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
         if (($ver -as [int]) -ge 311) {
+            # Skip interpreters without pip (e.g. MSYS2, store stub)
+            $hasPip = & $exe.Path -m pip --version 2>$null
+            if (-not $hasPip) {
+                Write-Warn "Skipping $($exe.Path) — no pip available"
+                continue
+            }
             $python = $exe.Path
             break
         }
@@ -37,9 +43,12 @@ foreach ($cmd in @('python3.13', 'python3.12', 'python3.11', 'python3', 'python'
 
 if (-not $python) {
     Write-Fail @"
-Python 3.11 or later is required.
-  winget : winget install Python.Python.3.12
-  Manual : https://www.python.org/downloads/windows/
+Python 3.11 or later with pip is required but was not found.
+  Install from python.org (recommended):
+    winget install Python.Python.3.12
+  or:  https://www.python.org/downloads/windows/
+  Make sure to check 'Add Python to PATH' during installation.
+  Note: MSYS2/Cygwin Python is not supported — install the official python.org build.
 "@
 }
 
