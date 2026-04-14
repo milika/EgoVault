@@ -31,27 +31,22 @@ ok()   { printf "${GREEN}[ok]    ${RESET}%s\n" "$*"; }
 warn() { printf "${YELLOW}[warn]  ${RESET}%s\n" "$*"; }
 die()  { printf "${RED}[error] ${RESET}%s\n" "$*" >&2; exit 1; }
 
-# -- 1. locate Python 3.11+ with pip ------------------------------------------
+# -- 1. locate Python 3.11+ (pip not required - venv bootstraps its own) ------
 PYTHON=""
 for cmd in python3.13 python3.12 python3.11 python3 python; do
     if command -v "$cmd" >/dev/null 2>&1; then
         py_ver=$("$cmd" -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>/dev/null || true)
         if [ -n "$py_ver" ] && [ "$py_ver" -ge 311 ] 2>/dev/null; then
-            # Skip interpreters without pip
-            if "$cmd" -m pip --version >/dev/null 2>&1; then
-                PYTHON="$cmd"
-                break
-            else
-                warn "Skipping $cmd - no pip available"
-            fi
+            PYTHON="$cmd"
+            break
         fi
     fi
 done
 
 if [ -z "$PYTHON" ]; then
-    die "Python 3.11 or later with pip is required.
-  macOS:   brew install python           (https://brew.sh)
-  Ubuntu:  sudo apt install python3.11 python3.11-venv
+    die "Python 3.11 or later is required.
+  macOS:   brew install python                              (https://brew.sh)
+  Ubuntu:  sudo apt install python3.13 python3.13-venv
   Other:   https://www.python.org/downloads/"
 fi
 ok "Python: $($PYTHON --version)"
@@ -71,7 +66,17 @@ if [ -f "$VENV_BIN/python" ]; then
     info "Using existing venv at $VENV_DIR"
 else
     info "Creating venv ..."
-    "$PYTHON" -m venv "$VENV_DIR"
+    if ! "$PYTHON" -m venv "$VENV_DIR" 2>/dev/null; then
+        die "venv creation failed. On Ubuntu, run: sudo apt install python3-venv
+  (or the versioned package, e.g. python3.13-venv)"
+    fi
+fi
+
+# Bootstrap pip inside the venv if it wasn't bundled (common on Ubuntu minimal)
+if ! "$VENV_PIP" --version >/dev/null 2>&1; then
+    info "Bootstrapping pip inside venv ..."
+    "$VENV_BIN/python" -m ensurepip --upgrade 2>/dev/null || \
+        die "pip not available. On Ubuntu, run: sudo apt install python3-pip (or python3.13-venv)"
 fi
 
 # -- 4. install / upgrade egovault into the venv ------------------------------
