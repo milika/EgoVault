@@ -103,6 +103,14 @@ if ! "$VENV_PIP" --version >/dev/null 2>&1; then
 fi
 
 # -- 4. install / upgrade egovault into the venv ------------------------------
+# Pre-install CPU-only torch to avoid pip pulling in multi-GB CUDA wheels
+# (sentence-transformers depends on torch; without this, pip picks the CUDA build)
+if ! "$VENV_PIP" show torch >/dev/null 2>&1; then
+    info "Pre-installing CPU-only torch (avoids multi-GB CUDA download)..."
+    "$VENV_PIP" install --no-cache-dir \
+        torch --index-url https://download.pytorch.org/whl/cpu
+fi
+
 if "$VENV_PIP" show egovault >/dev/null 2>&1; then
     info "egovault already installed - upgrading..."
     "$VENV_PIP" install --upgrade --no-cache-dir --progress-bar on egovault
