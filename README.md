@@ -5,6 +5,7 @@
 [![CI](https://github.com/milika/EgoVault/actions/workflows/ci.yml/badge.svg)](https://github.com/milika/EgoVault/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![HF Demo](https://img.shields.io/badge/🤗%20Spaces-Demo-blue)](https://huggingface.co/spaces/milika/egovault-demo)
 
 Every message you sent, every article you saved, every decision you made - scattered across platforms
 that own your data, monetise your attention, and can delete your history without warning.

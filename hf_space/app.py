@@ -2,7 +2,7 @@
 
 Synthetic data only.  LLM calls go to HF Inference API (Mistral-7B).
 EgoVault is designed to run 100% locally on your machine via llama-server.
-Get the real thing: https://github.com/your-handle/egovault
+Get the real thing: https://github.com/milika/egovault
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ st.set_page_config(
 st.info(
     "**Demo mode** — synthetic data, LLM via HF Inference API.  "
     "EgoVault is designed to run **100 % locally** on your machine.  "
-    "[Get the real thing on GitHub →](https://github.com/your-handle/egovault)",
+    "[Get the real thing on GitHub →](https://github.com/milika/egovault)",
     icon="ℹ️",
 )
 
@@ -237,7 +237,7 @@ with st.sidebar:
 
     st.divider()
     st.caption(f"⚙️ Model: `{_MODEL.split('/')[-1]}`")
-    st.caption("[Get the local version →](https://github.com/your-handle/egovault)")
+    st.caption("[Get the local version →](https://github.com/milika/egovault)")
 
 # ---------------------------------------------------------------------------
 # Session state
