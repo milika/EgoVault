@@ -591,6 +591,7 @@ def ensure_llama_server(settings: "Settings", console: Console) -> bool:
     console.print(
         f"[dim]Starting {backend}  model={model_path.name}  "
         f"ctx={ctx}  flash-attn={'on' if lcpp.flash_attn else 'off'}  "
+        f"vision={'on (' + mmproj_path.name + ')' if mmproj_path else 'off'}  "
         f"vram-budget={lcpp.vram_budget_pct:.0%}[/dim]"
     )
 

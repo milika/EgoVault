@@ -125,35 +125,50 @@ _vision_supported_cache: dict[str, bool] = {}
 
 
 def _is_vision_supported(base_url: str, timeout: int = 5) -> bool:
-    """Return True if the running llama-server has a multimodal projector loaded.
+    """Return True if the running llama-server was started with a multimodal projector.
 
-    Calls ``GET <base_url>/props`` and checks the ``multimodal`` field.
-    Result is cached for the lifetime of the process so scanning a folder
-    only pays the HTTP round-trip once.
+    Detection strategy (in order):
+    1. **Managed server** (``llama_cpp.manage = true``): check whether any
+       ``*mmproj*.gguf`` file exists in the model directory.  This is the
+       same criterion bootstrap uses to decide whether to pass ``--mmproj``
+       — no HTTP call needed, always correct.
+    2. **External server** (``manage = false``): call ``GET /props`` and look
+       for a truthy ``"multimodal"`` key (present in recent llama-server builds).
+    3. Fall back to False (never blocks ingest).
+
+    Result is cached per base_url for the lifetime of the process.
     """
-    import json as _json
-    import urllib.request as _req
-
     if base_url in _vision_supported_cache:
         return _vision_supported_cache[base_url]
 
-    url = base_url.rstrip("/") + "/props"
+    supported = False
     try:
-        with _req.urlopen(url, timeout=timeout) as resp:  # noqa: S310
-            data = _json.loads(resp.read().decode("utf-8"))
-        supported = bool(data.get("multimodal", False))
+        from egovault.config import get_settings
+        settings = get_settings()
+        lcpp = settings.llama_cpp
+
+        if lcpp.manage and lcpp.model_path:
+            # Fast path: check model directory for a projector file.
+            model_dir = Path(lcpp.model_path).expanduser().resolve().parent
+            supported = bool(list(model_dir.glob("*mmproj*.gguf")))
+        else:
+            # External server: probe /props
+            import json as _json
+            import urllib.request as _req
+            url = base_url.rstrip("/") + "/props"
+            with _req.urlopen(url, timeout=timeout) as resp:  # noqa: S310
+                data = _json.loads(resp.read().decode("utf-8"))
+            supported = bool(data.get("multimodal", False))
     except Exception:
-        # /props endpoint missing (older llama-server) or server unreachable —
-        # assume no vision so we don't block ingest.
         supported = False
 
     _vision_supported_cache[base_url] = supported
     if not supported:
         logger.info(
-            "llama-server at %s does not report multimodal support — "
+            "No vision projector found for llama-server at %s — "
             "image files will be ingested without a vision description. "
-            "To enable: add --mmproj <projector.gguf> to the server launch command "
-            "and set llama_cpp.mmproj_path in egovault.toml.",
+            "To enable vision: download a *mmproj*.gguf into your models/ folder "
+            "(EgoVault will auto-detect and pass --mmproj on next start).",
             base_url,
         )
     return supported
@@ -325,7 +340,11 @@ def _extract_text(path: Path) -> str:
         return "\n".join(texts)
 
     if suffix in _IMAGE_SUFFIXES:
-        return _describe_image(path)
+        # Vision description is deferred to the enrichment pipeline so that
+        # ingest remains fast (no LLM call per image file).
+        # _describe_image() is called from EnrichmentPipeline.enrich_record()
+        # for records with record_type == "image" and an empty body.
+        return ""
 
     return ""
 
