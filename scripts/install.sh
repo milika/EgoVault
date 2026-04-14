@@ -180,4 +180,10 @@ printf "\nFull docs: https://github.com/milika/EgoVault/blob/main/docs/installat
 
 # Launch ego chat immediately (cd so egovault.toml is found)
 cd "$INSTALL_DIR"
-exec "$EV_EXE" chat
+# When piped via `curl | sh`, stdin is the pipe not the terminal.
+# Re-attach stdin to /dev/tty so the chat REPL can read user input.
+if [ ! -t 0 ] && [ -c /dev/tty ]; then
+    exec "$EV_EXE" chat < /dev/tty
+else
+    exec "$EV_EXE" chat
+fi
