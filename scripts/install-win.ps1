@@ -81,7 +81,8 @@ if ($installed) {
 if ($LASTEXITCODE -ne 0) { Write-Fail "pip install egovault failed." }
 
 # ── 4. add venv Scripts to user PATH (permanent) ─────────────────────────────
-$userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User') ?? ''
+$userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+if (-not $userPath) { $userPath = '' }
 if ($userPath -notlike "*$venvScripts*") {
     [System.Environment]::SetEnvironmentVariable('PATH', "$venvScripts;$userPath", 'User')
     Write-Info "Added $venvScripts to user PATH."
