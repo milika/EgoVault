@@ -79,6 +79,14 @@ _FILE_EXTS: frozenset[str] = frozenset({"pdf", "doc", "docx", "txt", "jpg", "jpe
                                          "png", "gif", "csv", "xlsx", "xls", "zip",
                                          "mp3", "mp4", "mov", "avi", "md"})
 
+def _get_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("egovault")
+    except Exception:
+        return "?"
+
+
 _BANNER = "[bold cyan]EgoVault[/bold cyan] — your personal data vault  |  type [dim]/help[/dim] for commands"
 
 _HELP = (
@@ -4978,7 +4986,7 @@ def run_chat_session(store: VaultStore, settings: Settings) -> None:
             owner_profile = extract_owner_profile(store, _call_llm, _llm_kwargs)
 
     console.print(Rule())
-    console.print(_BANNER)
+    console.print(f"{_BANNER}  [dim]v{_get_version()}[/dim]")
     console.print(Rule())
     console.print()
 
