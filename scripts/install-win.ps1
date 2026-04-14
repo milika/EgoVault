@@ -4,11 +4,15 @@
 #
 # What this script does:
 #   1. Verifies Python 3.11+ (with pip) is available
-#   2. Creates a .venv at ~\.egovault\venv
-#   3. Installs (or upgrades) egovault into that venv
-#   4. Adds the venv Scripts dir to the user PATH permanently
-#   5. Writes a default egovault.toml to ~\.config\egovault\
-#   6. Creates inbox and data directories
+#   2. Creates an egovault folder in the current directory
+#   3. Creates a .venv inside that folder
+#   4. Installs egovault into the venv
+#   5. Adds the venv Scripts dir to user PATH permanently
+#   6. Writes egovault.toml, inbox/, data/ all inside the folder
+#
+# Run this from wherever you want EgoVault to live, e.g.:
+#   cd C:\Users\you\Projects
+#   irm https://raw.githubusercontent.com/milika/EgoVault/main/scripts/install-win.ps1 | iex
 #
 # Safe to re-run - existing config and venv are never clobbered.
 
@@ -67,21 +71,25 @@ Python 3.11 or later with pip is required but was not found.
 
 Write-Ok "Python: $(& $python --version)"
 
-# -- 2. create / reuse venv ----------------------------------------------------
-$venvDir = Join-Path $HOME '.egovault\venv'
+# -- 2. create install folder in current directory ----------------------------
+$installDir  = Join-Path $PWD 'egovault'
+$venvDir     = Join-Path $installDir '.venv'
+$venvScripts = Join-Path $venvDir 'Scripts'
+$venvPip     = Join-Path $venvScripts 'pip.exe'
+
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+Write-Info "Install directory: $installDir"
+
+# -- 3. create / reuse venv ---------------------------------------------------
 if (Test-Path (Join-Path $venvDir 'Scripts\python.exe')) {
     Write-Info "Using existing venv at $venvDir"
 } else {
-    Write-Info "Creating venv at $venvDir ..."
+    Write-Info "Creating venv ..."
     & $python -m venv $venvDir
     if ($LASTEXITCODE -ne 0) { Write-Fail "Failed to create venv at $venvDir" }
 }
 
-$venvPython = Join-Path $venvDir 'Scripts\python.exe'
-$venvPip    = Join-Path $venvDir 'Scripts\pip.exe'
-$venvScripts = Join-Path $venvDir 'Scripts'
-
-# -- 3. install / upgrade egovault into the venv -------------------------------
+# -- 4. install / upgrade egovault into the venv ------------------------------
 $installed = $false
 try {
     $ErrorActionPreference = 'Continue'
@@ -96,37 +104,34 @@ if ($installed) {
     Write-Info "Installing egovault..."
     & $venvPip install --quiet egovault
 }
-if ($LASTEXITCODE -ne 0) { Write-Fail "pip install egovault failed. The package may not be published to PyPI yet." }
+if ($LASTEXITCODE -ne 0) { Write-Fail "pip install egovault failed." }
 
-# -- 4. add venv Scripts to user PATH (permanent) -----------------------------
+# -- 5. add venv Scripts to user PATH (permanent) -----------------------------
 $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
 if (-not $userPath) { $userPath = '' }
 if ($userPath -notlike "*$venvScripts*") {
     [System.Environment]::SetEnvironmentVariable('PATH', "$venvScripts;$userPath", 'User')
     Write-Info "Added $venvScripts to user PATH."
 }
-# Also update the current session so egovault is usable right away.
 $env:PATH = "$venvScripts;$env:PATH"
 
 $evVer = & egovault --version 2>$null
 Write-Ok "egovault $evVer"
 
-# -- 5. paths ------------------------------------------------------------------
-$configDir  = Join-Path $HOME '.config\egovault'
-$configFile = Join-Path $configDir 'egovault.toml'
-$dataDir    = Join-Path $HOME '.local\share\egovault'
-$inboxDir   = Join-Path ([System.Environment]::GetFolderPath('MyDocuments')) 'egovault-inbox'
+# -- 6. create data dirs and config inside the install folder -----------------
+$dataDir   = Join-Path $installDir 'data'
+$inboxDir  = Join-Path $installDir 'inbox'
+$configFile = Join-Path $installDir 'egovault.toml'
 
-# Use TOML-safe forward-slash paths.
 $dataDirFwd  = $dataDir  -replace '\\', '/'
 $inboxDirFwd = $inboxDir -replace '\\', '/'
 
-New-Item -ItemType Directory -Force -Path $configDir              | Out-Null
-New-Item -ItemType Directory -Force -Path "$dataDir\models"       | Out-Null
-New-Item -ItemType Directory -Force -Path "$dataDir\output"       | Out-Null
-New-Item -ItemType Directory -Force -Path $inboxDir               | Out-Null
+New-Item -ItemType Directory -Force -Path $dataDir            | Out-Null
+New-Item -ItemType Directory -Force -Path "$dataDir\models"   | Out-Null
+New-Item -ItemType Directory -Force -Path "$dataDir\output"   | Out-Null
+New-Item -ItemType Directory -Force -Path $inboxDir           | Out-Null
 
-# -- 6. write default config (only if missing) ---------------------------------
+# -- 7. write default config (only if missing) --------------------------------
 if (Test-Path $configFile) {
     Write-Warn "Config already exists at $configFile - skipping."
 } else {
@@ -155,7 +160,7 @@ backend = "auto"
 [web_search]
 provider    = "duckduckgo"
 max_results = 5
-"@ | Set-Content -Path $configFile -Encoding UTF8
+"@ | Set-Content -Path $configFile -Encoding ASCII
 
     Write-Ok "Config written to $configFile"
 }
@@ -163,17 +168,15 @@ max_results = 5
 # -- done ----------------------------------------------------------------------
 Write-Host ""
 Write-Host "EgoVault is ready!" -ForegroundColor White -BackgroundColor DarkGreen
-Write-Host "  vault DB  :  $dataDir\vault.db"
+Write-Host "  folder    :  $installDir"
 Write-Host "  inbox     :  $inboxDir"
 Write-Host "  config    :  $configFile"
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  1. Drop files into $inboxDir"
+Write-Host "  1. cd $installDir"
 Write-Host "  2. egovault chat       # terminal REPL"
 Write-Host "  3. egovault web        # Streamlit browser UI"
 Write-Host ""
 Write-Host "Full docs: https://github.com/milika/EgoVault/blob/main/docs/installation.md"
 Write-Host ""
-
-# Remind the user to restart their shell so the updated PATH takes effect.
 Write-Warn "Restart PowerShell (or open a new terminal) so 'egovault' is available everywhere."
