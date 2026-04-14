@@ -1029,9 +1029,13 @@ _VAULT_TOOLS: list[dict] = [
         "function": {
             "name": "count_records",
             "description": (
-                "Count records stored in the vault, optionally filtered by platform and/or date range. "
+                "Count records stored in the vault, optionally filtered by platform, date range, "
+                "record type, and/or enrichment status. "
                 "Use this for any counting or statistics question: 'how many emails this week', "
                 "'how many files last month', 'how many gmail messages in April'. "
+                "ALSO use this when the user asks about the enrichment pipeline: "
+                "'how many X did we enrich?', 'how many images have been enriched?' — "
+                "pass record_type for the content type AND enriched=true to count only enriched records. "
                 "For relative dates ('this week', 'yesterday', 'last month'), resolve them using [TODAY] "
                 "from the system prompt. 'This week' starts on Monday. Returns total count and per-platform breakdown."
             ),
@@ -1049,6 +1053,23 @@ _VAULT_TOOLS: list[dict] = [
                     "until": {
                         "type": "string",
                         "description": "ISO date (YYYY-MM-DD) upper bound, inclusive. E.g. '2026-04-11' for today.",
+                    },
+                    "record_type": {
+                        "type": "string",
+                        "description": (
+                            "Filter by content type. Supported values: "
+                            "'image' (or 'photo', 'picture') — files with image MIME type or image extensions "
+                            "(jpg, png, gif, webp, etc.). Omit to count all types."
+                        ),
+                    },
+                    "enriched": {
+                        "type": "boolean",
+                        "description": (
+                            "Filter by enrichment status. "
+                            "true — only records that have been processed by the LLM enrichment pipeline; "
+                            "false — only records NOT yet enriched; "
+                            "omit — count all records regardless of enrichment status."
+                        ),
                     },
                 },
                 "required": [],
@@ -2463,13 +2484,33 @@ def _tool_count_records(
     platform_filter = (args.get("platform") or "").strip() or None
     since_filter = (args.get("since") or "").strip() or None
     until_filter = (args.get("until") or "").strip() or None
+    record_type_filter = (args.get("record_type") or "").strip() or None
+    enriched_raw = args.get("enriched")
+    enriched_filter: bool | None = None
+    if enriched_raw is not None:
+        if isinstance(enriched_raw, bool):
+            enriched_filter = enriched_raw
+        elif str(enriched_raw).lower() in ("true", "1", "yes"):
+            enriched_filter = True
+        elif str(enriched_raw).lower() in ("false", "0", "no"):
+            enriched_filter = False
     result = store.count_records(
-        platform=platform_filter, since=since_filter, until=until_filter
+        platform=platform_filter,
+        since=since_filter,
+        until=until_filter,
+        enriched=enriched_filter,
+        record_type=record_type_filter,
     )
     lines: list[str] = []
     filter_parts: list[str] = []
     if platform_filter:
         filter_parts.append(f"platform={platform_filter}")
+    if record_type_filter:
+        filter_parts.append(f"type={record_type_filter}")
+    if enriched_filter is True:
+        filter_parts.append("enriched only")
+    elif enriched_filter is False:
+        filter_parts.append("unenriched only")
     if since_filter:
         filter_parts.append(f"since={since_filter}")
     if until_filter:

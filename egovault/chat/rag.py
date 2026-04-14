@@ -354,6 +354,10 @@ _DEDUP_FINGERPRINT_LEN = 500
 _KWIC_MERGE_GAP = 50
 # Path-bonus scale factor applied when adding route bonus to rank.
 _PATH_BONUS_SCALE = 0.01
+# Timeout (seconds) for embedding a query at retrieval time.  Kept short so
+# that a busy/enriching llama-server degrades gracefully to FTS5-only quickly
+# rather than blocking the user for a full 60 s.
+_EMBED_QUERY_TIMEOUT = 10
 
 
 def embed_text(text: str, base_url: str, model: str, timeout: int = 60) -> list[float]:
@@ -582,7 +586,7 @@ def retrieve_semantic(
     - The query produces a zero vector.
     """
     try:
-        query_vec = embed_text(query, resolved_base_url, embed_cfg.model)
+        query_vec = embed_text(query, resolved_base_url, embed_cfg.model, timeout=_EMBED_QUERY_TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         logger.warning("retrieve_semantic: embed_text failed: %s", exc)
         return []
@@ -653,7 +657,7 @@ def retrieve_hype(
     ``egovault embed`` with ``hype_enabled = true`` first).
     """
     try:
-        query_vec = embed_text(query, resolved_base_url, embed_cfg.model)
+        query_vec = embed_text(query, resolved_base_url, embed_cfg.model, timeout=_EMBED_QUERY_TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         logger.warning("retrieve_hype: embed_text failed: %s", exc)
         return []
@@ -1105,7 +1109,7 @@ def retrieve_sentence_window(
     ``egovault embed`` with ``sentence_window.enabled = true`` first).
     """
     try:
-        query_vec = embed_text(query, resolved_base_url, embed_cfg.model)
+        query_vec = embed_text(query, resolved_base_url, embed_cfg.model, timeout=_EMBED_QUERY_TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         logger.warning("retrieve_sentence_window: embed_text failed: %s", exc)
         return []

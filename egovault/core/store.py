@@ -604,14 +604,42 @@ class VaultStore:
         platform: str | None = None,
         since: str | None = None,
         until: str | None = None,
+        enriched: bool | None = None,
+        record_type: str | None = None,
     ) -> dict:
         """Count vault records matching optional filters.
 
         Returns ``{"total": int, "breakdown": [{"platform": str, "count": int}, ...]}``.
         *since* and *until* are ISO date strings (``YYYY-MM-DD``).
         *until* is inclusive for the whole day (``T23:59:59``).
+        *enriched* — True: only records that have an enrichment_results row;
+                      False: only unenriched records; None: all records.
+        *record_type* — "image"/"photo"/"picture" matches mime_type LIKE 'image/%'
+                        or common image file extensions.
         """
         conditions, params = self._build_date_filter(platform, since, until)
+
+        # Image / picture filter
+        _IMAGE_EXTS = ("jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "heic", "svg")
+        _normalized_type = (record_type or "").lower().strip()
+        if _normalized_type in ("image", "photo", "picture", "img"):
+            ext_checks = " OR ".join(
+                f"LOWER(file_path) LIKE '%.{e}'" for e in _IMAGE_EXTS
+            )
+            conditions.append(
+                f"(mime_type LIKE 'image/%' OR {ext_checks})"
+            )
+
+        # Enriched / unenriched filter — use EXISTS subquery (no extra JOIN needed)
+        if enriched is True:
+            conditions.append(
+                "EXISTS (SELECT 1 FROM enrichment_results er WHERE er.record_id = id)"
+            )
+        elif enriched is False:
+            conditions.append(
+                "NOT EXISTS (SELECT 1 FROM enrichment_results er WHERE er.record_id = id)"
+            )
+
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         row = self._con.execute(
             f"SELECT COUNT(*) AS n FROM normalized_records {where}", params
