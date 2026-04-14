@@ -500,6 +500,19 @@ class VaultStore:
         self._con.commit()
         return cur.rowcount > 0
 
+    def update_record_body(self, record_id: str, new_body: str) -> bool:
+        """Replace the body of *record_id* in place.
+
+        The FTS5 UPDATE trigger keeps the search index in sync automatically.
+        Returns True when a row was actually updated.
+        """
+        cur = self._con.execute(
+            "UPDATE normalized_records SET body = ? WHERE id = ?",
+            (new_body, record_id),
+        )
+        self._con.commit()
+        return cur.rowcount > 0
+
     # ------------------------------------------------------------------
     # enrichment_results + extracted_gems
     # ------------------------------------------------------------------

@@ -316,9 +316,74 @@ class EnrichmentPipeline:
     # Public API
     # ------------------------------------------------------------------
 
+    def _enrich_image(self, record: NormalizedRecord) -> bool:
+        """Describe an image record via the LLM vision API and store the result.
+
+        Called from ``enrich_record`` for records with ``record_type == "image"``
+        and an empty body.  Uses the same llama-server endpoint as text enrichment
+        (multimodal message format with a base64 data-URI image_url part).
+
+        Returns True on success (body updated, record marked DONE),
+        False if vision is not supported or the file is missing/unreadable.
+        """
+        from pathlib import Path as _Path
+        from egovault.adapters.local_inbox import _describe_image, _is_vision_supported
+
+        llm = self._settings.llm
+        if not _is_vision_supported(llm.base_url):
+            # Vision not available — mark as skipped so we don't keep retrying.
+            self._store.mark_enriched(record.id, EnrichmentStatus.SKIPPED)
+            return False
+
+        # Determine the image path — prefer file_path, fall back to first attachment.
+        img_path_str = record.file_path or (
+            record.attachments[0] if record.attachments else None
+        )
+        if not img_path_str:
+            logger.warning("Image record %s has no file_path or attachments", record.id)
+            self._store.mark_enriched(record.id, EnrichmentStatus.FAILED)
+            return False
+
+        img_path = _Path(img_path_str)
+        if not img_path.exists():
+            logger.warning("Image file not found, skipping vision: %s", img_path)
+            self._store.mark_enriched(record.id, EnrichmentStatus.SKIPPED)
+            return False
+
+        description = _describe_image(img_path)
+        if not description:
+            logger.warning("Vision description returned empty for %s", img_path.name)
+            self._store.mark_enriched(record.id, EnrichmentStatus.FAILED)
+            return False
+
+        # Prepend the file path header (same format as text records) and store.
+        path_header = f"File: {img_path}\n---\n"
+        full_body = path_header + description
+        self._store.update_record_body(record.id, full_body)
+        # Also store as enrichment result so the rest of the pipeline (embed,
+        # chunk, etc.) treats it as fully enriched.
+        self._store.insert_enrichment_result(
+            record_id=record.id,
+            model=llm.model,
+            summary=description[:500],
+            gems_raw="",
+            token_count=len(description) // 4,
+            retries=0,
+        )
+        self._store.mark_enriched(record.id, EnrichmentStatus.DONE)
+        logger.info("Vision description stored for %s", img_path.name)
+        return True
+
     def enrich_record(self, record: NormalizedRecord) -> bool:
         """Enrich a single record. Returns True on success, False on failure."""
         llm = self._settings.llm
+
+        # ── Image records: generate vision description instead of text enrichment ──
+        # Images have an empty body at ingest time (description is deferred here
+        # so that scanning a folder is fast and non-blocking).
+        if record.record_type == "image" and not (record.body or "").strip():
+            return self._enrich_image(record)
+
         user_prompt = _build_user_prompt([record])
 
         try:
