@@ -86,8 +86,20 @@ fi
 # Bootstrap pip inside the venv if it wasn't bundled (common on Ubuntu minimal)
 if ! "$VENV_PIP" --version >/dev/null 2>&1; then
     info "Bootstrapping pip inside venv ..."
-    "$VENV_BIN/python" -m ensurepip --upgrade 2>/dev/null || \
-        die "pip not available. On Ubuntu, run: sudo apt install python3-pip (or python3.13-venv)"
+    if "$VENV_BIN/python" -m ensurepip --upgrade 2>/dev/null; then
+        : # ensurepip worked
+    else
+        info "ensurepip unavailable - fetching get-pip.py (no sudo needed) ..."
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL https://bootstrap.pypa.io/get-pip.py | "$VENV_BIN/python" || \
+                die "pip bootstrap via get-pip.py failed"
+        elif command -v wget >/dev/null 2>&1; then
+            wget -qO- https://bootstrap.pypa.io/get-pip.py | "$VENV_BIN/python" || \
+                die "pip bootstrap via get-pip.py failed"
+        else
+            die "Cannot bootstrap pip: curl/wget not found. Install python3.13-venv or pip manually."
+        fi
+    fi
 fi
 
 # -- 4. install / upgrade egovault into the venv ------------------------------
