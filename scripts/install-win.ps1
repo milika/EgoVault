@@ -157,8 +157,8 @@ max_results = 5
     Write-Ok "Config written to $configFile"
 }
 
-# -- 7. create ego.cmd launcher -----------------------------------------------
-$launcherPath = Join-Path $installDir 'ego.cmd'
+# -- 7. create ego.cmd launcher in current directory -------------------------
+$launcherPath = Join-Path $PWD 'ego.cmd'
 $launcherContent = "@echo off`r`n`"$evExe`" %*`r`n"
 [System.IO.File]::WriteAllText($launcherPath, $launcherContent, [System.Text.Encoding]::ASCII)
 Write-Ok "Launcher created: $launcherPath"
@@ -170,8 +170,7 @@ Write-Host "  folder :  $installDir"
 Write-Host "  inbox  :  $inboxDir"
 Write-Host "  config :  $configFile"
 Write-Host ""
-Write-Host "To start:"
-Write-Host "  cd $installDir"
+Write-Host "To start (from this folder):"
 Write-Host "  ego chat       # terminal REPL"
 Write-Host "  ego web        # Streamlit browser UI"
 Write-Host ""
