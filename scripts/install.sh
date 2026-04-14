@@ -67,8 +67,19 @@ if [ -f "$VENV_BIN/python" ]; then
 else
     info "Creating venv ..."
     if ! "$PYTHON" -m venv "$VENV_DIR" 2>/dev/null; then
-        die "venv creation failed. On Ubuntu, run: sudo apt install python3-venv
-  (or the versioned package, e.g. python3.13-venv)"
+        # Detect Python minor version for the package name (e.g. python3.13-venv)
+        py_minor=$("$PYTHON" -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}-venv')" 2>/dev/null || true)
+        if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
+            warn "venv not available - attempting: sudo apt-get install -y $py_minor"
+            sudo apt-get install -y "$py_minor" >/dev/null 2>&1 || \
+                die "Auto-install failed. Run manually: sudo apt-get install -y $py_minor"
+            info "Retrying venv creation ..."
+            "$PYTHON" -m venv "$VENV_DIR" || \
+                die "venv creation failed even after installing $py_minor"
+        else
+            die "venv creation failed. Install the venv package first:
+  Ubuntu/Debian: sudo apt-get install -y ${py_minor:-python3-venv}"
+        fi
     fi
 fi
 
