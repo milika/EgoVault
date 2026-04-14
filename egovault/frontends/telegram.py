@@ -742,7 +742,8 @@ async def _cmd_schedule(update, context) -> None:
     loop = asyncio.get_event_loop()
     def _run():
         from egovault.core.store import VaultStore
-        from egovault.agent.commands import _run_capturing, _handle_schedule
+        from egovault.agent.commands import _run_capturing
+        from egovault.agent.session import _handle_schedule
         store = VaultStore(settings.vault_db)
         store.init_db()
         try:

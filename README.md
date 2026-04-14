@@ -113,6 +113,22 @@ egovault mcp           # MCP server for AnythingLLM / Claude Desktop
 
 ---
 
+## Screenshots
+
+**Terminal REPL** — llama-server auto-starts and chat is ready immediately  
+![Terminal REPL](screenshots/ssh.png)
+
+**Browser UI** — chat with your vault, tool calls shown inline  
+![Browser UI chat](screenshots/web2.png)
+
+**Remote access login** — password-protected page served over a secure WAN tunnel  
+![Remote access login](screenshots/web1.png)
+
+**Telegram bot** — full command set accessible from any device  
+![Telegram bot](screenshots/telegram.jpg)
+
+---
+
 ## Roadmap
 
 ### Adapters coming next

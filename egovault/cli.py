@@ -1246,9 +1246,17 @@ def telegram_cmd(ctx: click.Context) -> None:
     # ── Single-instance guard ─────────────────────────────────────────────────
     import psutil as _psutil
     _current_pid = os.getpid()
+    # Collect ancestor PIDs so we never kill our own parent shell/launcher
+    _ancestor_pids: set[int] = set()
+    try:
+        _p = _psutil.Process(_current_pid)
+        for _anc in _p.parents():
+            _ancestor_pids.add(_anc.pid)
+    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
+        pass
     for _proc in _psutil.process_iter(["pid", "cmdline"]):
         try:
-            if _proc.pid == _current_pid:
+            if _proc.pid == _current_pid or _proc.pid in _ancestor_pids:
                 continue
             _cmd = " ".join(_proc.info.get("cmdline") or [])
             if ("egovault" in _cmd or "ego" in _cmd) and "telegram" in _cmd:
