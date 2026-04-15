@@ -14,6 +14,20 @@ that own your data, monetise your attention, and can delete your history without
 
 ---
 
+## Similar to:
+
+| Project | What it does | Difference |
+|---------|-------------|------------|
+| [Khoj](https://github.com/khoj-ai/khoj) | Self-hostable AI second brain — RAG over personal docs, Obsidian, Notion, web | Requires a server; no email/chat import; cloud option available |
+| [screenpipe](https://github.com/screenpipe/screenpipe) | Records everything you see and hear on your screen, makes it searchable with a local LLM | Screen/audio capture, not message imports; heavier resource use |
+| [Reor](https://github.com/reorproject/reor) | Private local AI knowledge management — llama.cpp + RAG over Markdown notes | Notes only; no email, Telegram, or social export ingestion |
+| [PrivateGPT](https://github.com/zylon-ai/private-gpt) | Chat with local LLM over your own documents — 100% offline | Documents only; no platform adapters or multi-source ingestion |
+| [Logseq](https://github.com/logseq/logseq) | Local-first knowledge base with graph view and AI plugins | Manual note-taking; no automated import or enrichment pipeline |
+
+EgoVault's focus is **automated ingestion from real platforms** (Gmail, Telegram, WhatsApp…), enrichment via a local LLM, and hybrid RAG search — all without touching a server you don't own.
+
+---
+
 ## Why this exists
 
 Big Tech has had a good run storing your life for you. In return, they read your emails, sell your
@@ -32,6 +46,23 @@ answers your questions without sending a single byte to a third party.
 
 > **No subscriptions. No telemetry. No cloud lock-in.**  
 > Cloud sync is a future opt-in - never the default.
+
+---
+
+## Where your data is right now
+
+You probably use some of these every day. Each one knows more about you than most people in your life.
+
+| Platform | What they hold | Users |
+|----------|---------------|-------|
+| **Gmail** | Every email you ever sent or received — years of decisions, relationships, receipts, and plans | 1.8 billion |
+| **WhatsApp** | Every conversation with friends, family, and colleagues — your real voice, not the public one | 2 billion |
+| **Telegram** | Groups, channels, personal chats — often the most candid writing people do | 950 million |
+| **Instagram** | DMs, saved posts, your entire visual history — memories tied to a company's servers | 2 billion |
+| **Facebook / Messenger** | A decade or more of posts, messages, events, and connections | 3 billion |
+
+None of them will let you *search across all of it*. None of them will answer "what did I decide about X three years ago?"  
+They hold your data. EgoVault gives it back to you — fully local, fully searchable, fully yours.
 
 ---
 
@@ -96,9 +127,11 @@ egovault mcp           # MCP server for AnythingLLM / Claude Desktop
 | Local files (PDF, DOCX, HTML, Markdown, EPUB, spreadsheets, plain text) | :white_check_mark: |
 | Gmail - Takeout / live API (OAuth2) / IMAP | :white_check_mark: |
 | Telegram export | :white_check_mark: |
-| WhatsApp, Facebook Messenger | :hourglass_flowing_sand: planned |
+| WhatsApp (via Baileys), Facebook Messenger | :hourglass_flowing_sand: planned |
+| Discord (via Discord.js) | :hourglass_flowing_sand: planned |
 | Instagram, LinkedIn, Twitter/X, TikTok | :hourglass_flowing_sand: planned |
-| Obsidian vault, Calendar (ICS) | :hourglass_flowing_sand: planned |
+| Obsidian vault | :hourglass_flowing_sand: planned |
+| Calendar (Google Calendar, CalDAV, ICS) | :hourglass_flowing_sand: planned |
 
 ---
 
