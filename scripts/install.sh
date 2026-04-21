@@ -33,7 +33,7 @@ die()  { printf "${RED}[error] ${RESET}%s\n" "$*" >&2; exit 1; }
 
 # -- 1. locate Python 3.11+ (pip not required - venv bootstraps its own) ------
 PYTHON=""
-for cmd in python3.13 python3.12 python3.11 python3 python; do
+for cmd in python3.15 python3.14 python3.13 python3.12 python3.11 python3 python; do
     if command -v "$cmd" >/dev/null 2>&1; then
         py_ver=$("$cmd" -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>/dev/null || true)
         if [ -n "$py_ver" ] && [ "$py_ver" -ge 311 ] 2>/dev/null; then
@@ -43,10 +43,60 @@ for cmd in python3.13 python3.12 python3.11 python3 python; do
     fi
 done
 
+# Auto-install Python if not found
 if [ -z "$PYTHON" ]; then
-    die "Python 3.11 or later is required.
-  macOS:   brew install python                              (https://brew.sh)
-  Ubuntu:  sudo apt install python3.13 python3.13-venv
+    OS="$(uname -s)"
+    info "Python 3.11+ not found. Attempting automatic install..."
+    if [ "$OS" = "Darwin" ]; then
+        # macOS: try Homebrew
+        if command -v brew >/dev/null 2>&1; then
+            info "Installing Python via Homebrew..."
+            brew install python@3.12 || true
+            for cmd in python3.12 python3 python; do
+                command -v "$cmd" >/dev/null 2>&1 && PYTHON="$cmd" && break
+            done
+        fi
+        if [ -z "$PYTHON" ] && ! command -v brew >/dev/null 2>&1; then
+            info "Homebrew not found. Installing Homebrew first..."
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && \
+                brew install python@3.12 || true
+            for cmd in python3.12 python3 python; do
+                command -v "$cmd" >/dev/null 2>&1 && PYTHON="$cmd" && break
+            done
+        fi
+    elif [ "$OS" = "Linux" ]; then
+        if command -v apt-get >/dev/null 2>&1; then
+            info "Installing Python via apt-get..."
+            if command -v sudo >/dev/null 2>&1; then
+                sudo apt-get update -qq && sudo apt-get install -y python3.12 python3.12-venv python3-pip || \
+                sudo apt-get install -y python3 python3-venv python3-pip || true
+            else
+                apt-get update -qq && apt-get install -y python3.12 python3.12-venv python3-pip || \
+                apt-get install -y python3 python3-venv python3-pip || true
+            fi
+        elif command -v dnf >/dev/null 2>&1; then
+            info "Installing Python via dnf..."
+            sudo dnf install -y python3.12 || sudo dnf install -y python3 || true
+        elif command -v pacman >/dev/null 2>&1; then
+            info "Installing Python via pacman..."
+            sudo pacman -Sy --noconfirm python || true
+        fi
+        for cmd in python3.12 python3 python; do
+            if command -v "$cmd" >/dev/null 2>&1; then
+                py_ver=$("$cmd" -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>/dev/null || true)
+                if [ -n "$py_ver" ] && [ "$py_ver" -ge 311 ] 2>/dev/null; then
+                    PYTHON="$cmd"; break
+                fi
+            fi
+        done
+    fi
+fi
+
+if [ -z "$PYTHON" ]; then
+    die "Python 3.11 or later is required and could not be installed automatically.
+  macOS:   brew install python@3.12              (https://brew.sh)
+  Ubuntu:  sudo apt install python3.12 python3.12-venv
+  Fedora:  sudo dnf install python3.12
   Other:   https://www.python.org/downloads/"
 fi
 ok "Python: $($PYTHON --version)"
