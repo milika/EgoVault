@@ -2,11 +2,13 @@
 # EgoVault - one-liner installer for Linux and macOS
 # Usage: curl -fsSL https://raw.githubusercontent.com/milika/EgoVault/main/scripts/install.sh | sh
 #
+# No Python installation required - uv downloads its own Python runtime.
+#
 # What this script does:
-#   1. Verifies Python 3.11+ (with pip) is available
-#   2. Creates an egovault/ folder in the current directory
-#   3. Creates a .venv inside that folder
-#   4. Installs egovault into the venv
+#   1. Creates an egovault/ folder in the current directory
+#   2. Downloads uv (a single binary - no Python needed)
+#   3. Uses uv to create a .venv with a self-contained Python 3.12
+#   4. Installs egovault into the venv via uv
 #   5. Writes egovault.toml, inbox/, data/ all inside the folder
 #   6. Creates an ego launcher script in the current directory
 #   7. Launches ego chat
@@ -31,142 +33,68 @@ ok()   { printf "${GREEN}[ok]    ${RESET}%s\n" "$*"; }
 warn() { printf "${YELLOW}[warn]  ${RESET}%s\n" "$*"; }
 die()  { printf "${RED}[error] ${RESET}%s\n" "$*" >&2; exit 1; }
 
-# -- 1. locate Python 3.11+ (pip not required - venv bootstraps its own) ------
-PYTHON=""
-for cmd in python3.15 python3.14 python3.13 python3.12 python3.11 python3 python; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-        py_ver=$("$cmd" -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>/dev/null || true)
-        if [ -n "$py_ver" ] && [ "$py_ver" -ge 311 ] 2>/dev/null; then
-            PYTHON="$cmd"
-            break
-        fi
-    fi
-done
-
-# Auto-install Python if not found
-if [ -z "$PYTHON" ]; then
-    OS="$(uname -s)"
-    info "Python 3.11+ not found. Attempting automatic install..."
-    if [ "$OS" = "Darwin" ]; then
-        # macOS: try Homebrew
-        if command -v brew >/dev/null 2>&1; then
-            info "Installing Python via Homebrew..."
-            brew install python@3.12 || true
-            for cmd in python3.12 python3 python; do
-                command -v "$cmd" >/dev/null 2>&1 && PYTHON="$cmd" && break
-            done
-        fi
-        if [ -z "$PYTHON" ] && ! command -v brew >/dev/null 2>&1; then
-            info "Homebrew not found. Installing Homebrew first..."
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && \
-                brew install python@3.12 || true
-            for cmd in python3.12 python3 python; do
-                command -v "$cmd" >/dev/null 2>&1 && PYTHON="$cmd" && break
-            done
-        fi
-    elif [ "$OS" = "Linux" ]; then
-        if command -v apt-get >/dev/null 2>&1; then
-            info "Installing Python via apt-get..."
-            if command -v sudo >/dev/null 2>&1; then
-                sudo apt-get update -qq && sudo apt-get install -y python3.12 python3.12-venv python3-pip || \
-                sudo apt-get install -y python3 python3-venv python3-pip || true
-            else
-                apt-get update -qq && apt-get install -y python3.12 python3.12-venv python3-pip || \
-                apt-get install -y python3 python3-venv python3-pip || true
-            fi
-        elif command -v dnf >/dev/null 2>&1; then
-            info "Installing Python via dnf..."
-            sudo dnf install -y python3.12 || sudo dnf install -y python3 || true
-        elif command -v pacman >/dev/null 2>&1; then
-            info "Installing Python via pacman..."
-            sudo pacman -Sy --noconfirm python || true
-        fi
-        for cmd in python3.12 python3 python; do
-            if command -v "$cmd" >/dev/null 2>&1; then
-                py_ver=$("$cmd" -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>/dev/null || true)
-                if [ -n "$py_ver" ] && [ "$py_ver" -ge 311 ] 2>/dev/null; then
-                    PYTHON="$cmd"; break
-                fi
-            fi
-        done
-    fi
-fi
-
-if [ -z "$PYTHON" ]; then
-    die "Python 3.11 or later is required and could not be installed automatically.
-  macOS:   brew install python@3.12              (https://brew.sh)
-  Ubuntu:  sudo apt install python3.12 python3.12-venv
-  Fedora:  sudo dnf install python3.12
-  Other:   https://www.python.org/downloads/"
-fi
-ok "Python: $($PYTHON --version)"
-
-# -- 2. create install folder in current directory ----------------------------
+# -- 1. create install folder -------------------------------------------------
 INSTALL_DIR="$(pwd)/egovault"
 VENV_DIR="$INSTALL_DIR/.venv"
 VENV_BIN="$VENV_DIR/bin"
-VENV_PIP="$VENV_BIN/pip"
+UV="$INSTALL_DIR/uv"
 EV_EXE="$VENV_BIN/egovault"
 
 mkdir -p "$INSTALL_DIR"
 info "Install directory: $INSTALL_DIR"
 
-# -- 3. create / reuse venv ---------------------------------------------------
+# -- 2. download uv (no Python required) -------------------------------------
+if [ -f "$UV" ]; then
+    info "uv already present."
+else
+    info "Downloading uv..."
+    OS="$(uname -s)"
+    ARCH="$(uname -m)"
+    if [ "$OS" = "Darwin" ]; then
+        case "$ARCH" in
+            arm64)  UV_URL="https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-apple-darwin.tar.gz" ;;
+            *)      UV_URL="https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-apple-darwin.tar.gz" ;;
+        esac
+    else
+        # Linux - musl build works on any distro without libc version constraints
+        case "$ARCH" in
+            aarch64|arm64) UV_URL="https://github.com/astral-sh/uv/releases/latest/download/uv-aarch64-unknown-linux-musl.tar.gz" ;;
+            *)             UV_URL="https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-musl.tar.gz" ;;
+        esac
+    fi
+    UV_TMP="$(mktemp -d)"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$UV_URL" | tar -xz -C "$UV_TMP"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- "$UV_URL" | tar -xz -C "$UV_TMP"
+    else
+        die "curl or wget is required to download uv. Install one and retry."
+    fi
+    mv "$UV_TMP/uv" "$UV"
+    rm -rf "$UV_TMP"
+    chmod +x "$UV"
+    ok "uv downloaded."
+fi
+
+# -- 3. create venv with self-contained Python (auto-downloaded by uv) --------
+# UV_PYTHON_INSTALL_DIR keeps the Python runtime inside the install folder.
+export UV_PYTHON_INSTALL_DIR="$INSTALL_DIR/.python"
+
 if [ -f "$VENV_BIN/python" ]; then
     info "Using existing venv at $VENV_DIR"
 else
-    info "Creating venv ..."
-    if ! "$PYTHON" -m venv "$VENV_DIR" 2>/dev/null; then
-        # Detect Python minor version for the package name (e.g. python3.13-venv)
-        py_minor=$("$PYTHON" -c "import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}-venv')" 2>/dev/null || true)
-        if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
-            warn "venv not available - attempting: sudo apt-get install -y $py_minor"
-            sudo apt-get install -y "$py_minor" >/dev/null 2>&1 || \
-                die "Auto-install failed. Run manually: sudo apt-get install -y $py_minor"
-            info "Retrying venv creation ..."
-            "$PYTHON" -m venv "$VENV_DIR" || \
-                die "venv creation failed even after installing $py_minor"
-        else
-            die "venv creation failed. Install the venv package first:
-  Ubuntu/Debian: sudo apt-get install -y ${py_minor:-python3-venv}"
-        fi
-    fi
+    info "Creating venv with Python 3.12 (uv will download Python if needed)..."
+    "$UV" venv "$VENV_DIR" --python cpython-3.12
 fi
+ok "Python: $($VENV_BIN/python --version)"
 
-# Bootstrap pip inside the venv if it wasn't bundled (common on Ubuntu minimal)
-if ! "$VENV_PIP" --version >/dev/null 2>&1; then
-    info "Bootstrapping pip inside venv ..."
-    if "$VENV_BIN/python" -m ensurepip --upgrade 2>/dev/null; then
-        : # ensurepip worked
-    else
-        info "ensurepip unavailable - fetching get-pip.py (no sudo needed) ..."
-        if command -v curl >/dev/null 2>&1; then
-            curl -fsSL https://bootstrap.pypa.io/get-pip.py | "$VENV_BIN/python" || \
-                die "pip bootstrap via get-pip.py failed"
-        elif command -v wget >/dev/null 2>&1; then
-            wget -qO- https://bootstrap.pypa.io/get-pip.py | "$VENV_BIN/python" || \
-                die "pip bootstrap via get-pip.py failed"
-        else
-            die "Cannot bootstrap pip: curl/wget not found. Install python3.13-venv or pip manually."
-        fi
-    fi
-fi
-
-# -- 4. install / upgrade egovault into the venv ------------------------------
-# Pre-install CPU-only torch to avoid pip pulling in multi-GB CUDA wheels
-# (sentence-transformers depends on torch; without this, pip picks the CUDA build)
-if ! "$VENV_PIP" show torch >/dev/null 2>&1; then
-    info "Pre-installing CPU-only torch (avoids multi-GB CUDA download)..."
-    "$VENV_PIP" install --no-cache-dir \
-        torch --index-url https://download.pytorch.org/whl/cpu
-fi
-
-if "$VENV_PIP" show egovault >/dev/null 2>&1; then
+# -- 4. install / upgrade egovault -------------------------------------------
+if [ -f "$EV_EXE" ]; then
     info "egovault already installed - upgrading..."
-    "$VENV_PIP" install --upgrade --no-cache-dir --progress-bar on egovault
+    "$UV" pip install --python "$VENV_BIN/python" --upgrade egovault
 else
     info "Installing egovault..."
-    "$VENV_PIP" install --no-cache-dir --progress-bar on egovault
+    "$UV" pip install --python "$VENV_BIN/python" egovault
 fi
 ok "egovault $($EV_EXE --version 2>/dev/null || true)"
 
