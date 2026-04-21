@@ -28,44 +28,102 @@ function Write-Warn  { param($m) Write-Host "[warn]  $m" -ForegroundColor Yellow
 function Write-Fail  { param($m) Write-Host "[error] $m" -ForegroundColor Red; throw $m }
 
 # -- 1. locate Python 3.11+ with pip ------------------------------------------
+# Build candidate list: versioned names first, then the Windows py launcher
+# variants, then generic fallbacks.
 $python = $null
-foreach ($cmd in @('python3.13', 'python3.12', 'python3.11', 'python3', 'python')) {
-    $exe = Get-Command $cmd -ErrorAction SilentlyContinue
-    if (-not $exe) { continue }
 
-    # Get version number; skip store stubs and interpreters that fail
+# Helper: resolve a command name to a full path (or $null)
+function Resolve-Exe { param($cmd) (Get-Command $cmd -ErrorAction SilentlyContinue)?.Path }
+
+# Helper: test a specific executable path for Python >= 311 with pip
+function Test-PythonExe {
+    param([string]$exePath)
+    if (-not $exePath -or -not (Test-Path $exePath)) { return $false }
     $ver = $null
     try {
         $ErrorActionPreference = 'Continue'
-        $ver = & $exe.Path -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
+        $ver = & $exePath -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
     } catch { $ver = $null }
     finally { $ErrorActionPreference = 'Stop' }
-    if (($ver -as [int]) -lt 311) { continue }
-
-    # Skip interpreters without pip (e.g. MSYS2, store stub)
+    if (($ver -as [int]) -lt 311) { return $false }
     $hasPip = $false
     try {
         $ErrorActionPreference = 'Continue'
-        $null = & $exe.Path -m pip --version 2>&1
+        $null = & $exePath -m pip --version 2>&1
         $hasPip = ($LASTEXITCODE -eq 0)
     } catch { $hasPip = $false }
     finally { $ErrorActionPreference = 'Stop' }
-    if (-not $hasPip) {
-        Write-Warn "Skipping $($exe.Path) - no pip available"
-        continue
+    if (-not $hasPip) { Write-Warn "Skipping $exePath - no pip available"; return $false }
+    return $true
+}
+
+# Candidates: versioned names + Windows py launcher variants + generic fallbacks
+$namedCandidates = @('python3.15', 'python3.14', 'python3.13', 'python3.12', 'python3.11', 'python3', 'python')
+foreach ($cmd in $namedCandidates) {
+    $exePath = Resolve-Exe $cmd
+    if ($exePath -and (Test-PythonExe $exePath)) { $python = $exePath; break }
+}
+
+# Try the Windows Python Launcher (py.exe) with explicit version flags
+if (-not $python) {
+    $pyExe = Resolve-Exe 'py'
+    if ($pyExe) {
+        foreach ($flag in @('-3.15', '-3.14', '-3.13', '-3.12', '-3.11')) {
+            $exePath = $null
+            try {
+                $ErrorActionPreference = 'Continue'
+                $exePath = & $pyExe $flag -c "import sys; print(sys.executable)" 2>$null
+            } catch { $exePath = $null }
+            finally { $ErrorActionPreference = 'Stop' }
+            if ($exePath -and (Test-PythonExe $exePath)) { $python = $exePath; break }
+        }
+        # Fall back to py without a version flag
+        if (-not $python) {
+            $exePath = $null
+            try {
+                $ErrorActionPreference = 'Continue'
+                $exePath = & $pyExe -c "import sys; print(sys.executable)" 2>$null
+            } catch { $exePath = $null }
+            finally { $ErrorActionPreference = 'Stop' }
+            if ($exePath -and (Test-PythonExe $exePath)) { $python = $exePath }
+        }
     }
-    $python = $exe.Path
-    break
+}
+
+if (-not $python) {
+    # Attempt automatic install via winget (available on Windows 10 1709+ / 11)
+    $winget = Resolve-Exe 'winget'
+    if ($winget) {
+        Write-Info "Python not found. Attempting automatic install via winget..."
+        & $winget install --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "Python installed. Refreshing PATH..."
+            # Reload PATH so the new python.exe is visible in this session
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
+                        [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            # Re-run detection
+            foreach ($cmd in @('python3.12', 'python3', 'python')) {
+                $exePath = Resolve-Exe $cmd
+                if ($exePath -and (Test-PythonExe $exePath)) { $python = $exePath; break }
+            }
+            if (-not $python) {
+                # winget may install to a path not yet in the refreshed PATH; try known default
+                $pyDefault = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
+                if (Test-PythonExe $pyDefault) { $python = $pyDefault }
+            }
+        }
+    }
 }
 
 if (-not $python) {
     Write-Fail @"
 Python 3.11 or later with pip is required but was not found.
-  Install from python.org (recommended):
+  Install it automatically with winget (recommended):
     winget install Python.Python.3.12
-  or:  https://www.python.org/downloads/windows/
-  Make sure to check 'Add Python to PATH' during installation.
-  Note: MSYS2/Cygwin Python is not supported - install the official python.org build.
+  or download from:
+    https://www.python.org/downloads/windows/
+  Make sure to check 'Add Python to PATH' during installation, then re-run this script.
+  Note: MSYS2/Cygwin Python is not supported - use the official python.org build.
 "@
 }
 
