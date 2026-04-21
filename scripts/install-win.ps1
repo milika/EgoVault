@@ -32,8 +32,12 @@ function Write-Fail  { param($m) Write-Host "[error] $m" -ForegroundColor Red; t
 # variants, then generic fallbacks.
 $python = $null
 
-# Helper: resolve a command name to a full path (or $null)
-function Resolve-Exe { param($cmd) (Get-Command $cmd -ErrorAction SilentlyContinue)?.Path }
+# Helper: resolve a command name to a full path (or $null) - PS 5.1 compatible
+function Resolve-Exe {
+    param($cmd)
+    $found = Get-Command $cmd -ErrorAction SilentlyContinue
+    if ($found) { return $found.Path } else { return $null }
+}
 
 # Helper: test a specific executable path for Python >= 311 with pip
 function Test-PythonExe {
